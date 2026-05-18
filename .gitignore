@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.DS_Store
+renderer/node_modules/
+renderer/dist/
+dist/electron/
+*.log
+.env
+.env.local
+.vscode/
+*.blockmap
+*.exe
+*.dmg

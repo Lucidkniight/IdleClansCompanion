@@ -1,0 +1,72 @@
+{
+  "name": "idleclanscompanion",
+  "version": "0.0.26",
+  "description": "",
+  "main": "dist/electron/app.js",
+"scripts": {
+  "dev": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\" \"cd electron && tsc -w\"",
+  "package": "npm run build:renderer && npm run build:electron && electron-builder && node set-icon.js && node rename-build.js",
+  "build:electron": "cd electron && tsc && node -e \"require('fs').copyFileSync('icon.ico', '../dist/electron/icon.ico')\"",
+  "build:renderer": "cd renderer && npm run build",
+  "dev:renderer": "cd renderer && npm run dev",
+  "dev:electron": "cd electron && tsc && node -e \"require('fs').copyFileSync('icon.ico', '../dist/electron/icon.ico')\" && cd .. && electron .",
+  "format": "prettier --write ."
+
+},
+  "build": {
+    "appId": "your.app.id",
+    "productName": "IdleClansCompanion",
+    "buildDependenciesFromSource": false,
+    "publish": {
+      "provider": "github",
+      "owner": "Lucidkniight",
+      "repo": "IdleClansCompanion",
+      "private": false
+    },
+    "directories": {
+      "output": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "electron/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tlaceby/electron-svelte.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/tlaceby/electron-svelte/issues"
+  },
+  "homepage": "https://github.com/tlaceby/electron-svelte#readme",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^28.2.3",
+    "electron-builder": "^24.9.1",
+    "prettier": "^3.2.5",
+    "prettier-plugin-svelte": "^3.2.1"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.3",
+    "electron-reload": "^2.0.0-alpha.1",
+    "electron-updater": "^6.8.3",
+    "fs-extra": "^11.3.5",
+    "node-window-manager": "^2.2.4"
+  }
+}

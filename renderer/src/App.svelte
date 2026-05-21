@@ -292,6 +292,7 @@ interface Task {
   itemAmount: number;
   costs: TaskCost[];
   skill: string;
+  hasProfitValue: boolean;
 }
 
 const GATHERING_SKILLS = ['Woodcutting', 'Fishing', 'Mining', 'Foraging'];
@@ -363,7 +364,7 @@ async function loadProfitData() {
       for (const group of groups) {
         for (const t of group.Items) {
           if (t.Disabled || t.Hidden) continue;
-          if (t.ItemReward === -1 && (!t.Costs || t.Costs.length === 0)) continue;
+          const hasProfitValue = t.ItemReward !== -1 || (t.Costs && t.Costs.length > 0);
           tasks.push({
             name: t.Name,
             level: t.LevelRequirement,
@@ -373,6 +374,7 @@ async function loadProfitData() {
             itemAmount: t.ItemAmount ?? 0,
             costs: t.Costs ?? [],
             skill: skillName,
+            hasProfitValue
           });
         }
       }
@@ -401,8 +403,15 @@ async function loadProfitData() {
 $: skillTasks = (() => {
   const _ = [modTool, modGearPieces, modJewelryType, modJewelryPieces, modCapeTier, modGatherers, modSellSpeed];
   return profitTasks
-    .filter(t => t.skill === selectedProfitSkill)
+    .filter(t => t.skill === selectedProfitSkill && t.hasProfitValue)
     .sort((a, b) => calcProfit(b).profitPerHr - calcProfit(a).profitPerHr);
+})();
+
+$: xpTasks = (() => {
+  const _ = [modTool, modGearPieces, modJewelryType, modJewelryPieces, modCapeTier, modGatherers, modHousing, xpGoalLevel, xpCurrentXp];
+  return profitTasks
+    .filter(t => t.skill === xpSelectedSkill) // no hasProfitValue filter
+    .sort((a, b) => calcXp(b).xpPerHr - calcXp(a).xpPerHr);
 })();
 
 
@@ -471,12 +480,7 @@ function calcXp(task: Task): { xpPerHr: number; timeToGoal: number | null; actio
   return { xpPerHr, timeToGoal, actionsToGoal };
 }
 
-$: xpTasks = (() => {
-  const _ = [modTool, modGearPieces, modJewelryType, modJewelryPieces, modCapeTier, modGatherers, modHousing, xpGoalLevel, xpCurrentXp];
-  return profitTasks
-    .filter(t => t.skill === xpSelectedSkill)
-    .sort((a, b) => calcXp(b).xpPerHr - calcXp(a).xpPerHr);
-})();
+
 
 function formatTime(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;

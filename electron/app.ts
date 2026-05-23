@@ -56,7 +56,6 @@ async function main() {
   // mainWindow.webContents.openDevTools();
 }
 
-
 ipcMain.handle('get-window-previews', async (_event, ids: number[]) => {
   try {
     const sources = await desktopCapturer.getSources({

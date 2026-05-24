@@ -1,6 +1,4 @@
 # Idle Clans Companion
----
-
 A Windows desktop companion app for [Idle Clans](https://idleclans.com), built to make multi-account management and game planning easier without ever leaving your screen.
 
 ---

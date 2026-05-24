@@ -1,8 +1,4 @@
 # Idle Clans Companion
-
-> ⚠️ **Pre-Production Notice**
-> This application is currently in early development. Features may be incomplete, unstable, or change significantly between versions. In particular, **calculator formulas have not been fully verified and should not be relied upon for critical in-game decisions.** Use them as rough estimates only.
-
 ---
 
 A Windows desktop companion app for [Idle Clans](https://idleclans.com), built to make multi-account management and game planning easier without ever leaving your screen.

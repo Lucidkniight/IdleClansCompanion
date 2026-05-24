@@ -23,7 +23,7 @@ interface ToolModule {
   default: any;
 }
 
-const toolModules = import.meta.glob('./tools/*.svelte', { eager: true }) as Record<string, ToolModule>;
+const toolModules = import.meta.glob(['./tools/*.svelte', '!./tools/_*.svelte'], { eager: true }) as Record<string, ToolModule>;
 const TOOLS: ToolModule[] = Object.values(toolModules).sort((a, b) => a.toolMeta.name.localeCompare(b.toolMeta.name));
 
 let activeTool: ToolModule | null = null;

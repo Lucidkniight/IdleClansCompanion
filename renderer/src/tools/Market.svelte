@@ -19,12 +19,32 @@ interface ComprehensivePrice {
   tradeVolume1Day: number;
 }
 
+interface PriceHistoryPoint {
+  itemId: number;
+  timestamp: string;
+  lowesSellPrice: number;   // API field name has a typo — preserved intentionally
+  highestSellPrice: number;
+  averagePrice: number;
+  tradeVolume: number;
+}
+
+const CHART_H = 80;
+const VOL_H = 18;
+const PAD_T = 6;
+const PAD_L = 4;
+const PAD_R = 4;
+const VOL_GAP = 4;
+
 let marketSearch = '';
 let marketDropdownOpen = false;
-let selectedMarketItem: MarketItem | null = null;
 let marketData: ComprehensivePrice | null = null;
+let historyData: PriceHistoryPoint[] = [];
 let marketLoading = false;
 let marketError = false;
+
+let containerWidth = 260;
+let hoveredPoint: PriceHistoryPoint | null = null;
+let hoverX = 0;
 
 $: marketSuggestions = marketSearch.trim().length >= 2
   ? $allItems
@@ -32,17 +52,84 @@ $: marketSuggestions = marketSearch.trim().length >= 2
       .slice(0, 50)
   : [];
 
+$: chartW = Math.max(containerWidth - PAD_L - PAD_R, 1);
+$: svgH = PAD_T + CHART_H + VOL_GAP + VOL_H + 2;
+
+$: minP = historyData.length
+  ? Math.min(...historyData.flatMap(d => [d.lowesSellPrice, d.highestSellPrice, d.averagePrice]))
+  : 0;
+$: maxP = historyData.length
+  ? Math.max(...historyData.flatMap(d => [d.lowesSellPrice, d.highestSellPrice, d.averagePrice]))
+  : 1;
+$: priceRange = maxP - minP || 1;
+$: minT = historyData.length ? Math.min(...historyData.map(d => new Date(d.timestamp).getTime())) : 0;
+$: maxT = historyData.length ? Math.max(...historyData.map(d => new Date(d.timestamp).getTime())) : 1;
+$: timeRange = maxT - minT || 1;
+$: maxVol = historyData.length ? Math.max(...historyData.map(d => d.tradeVolume)) : 1;
+
+$: bandPoints = (() => {
+  if (historyData.length < 2) return '';
+  const x = (d: PriceHistoryPoint) => PAD_L + ((new Date(d.timestamp).getTime() - minT) / timeRange) * chartW;
+  const y = (p: number) => PAD_T + (1 - (p - minP) / priceRange) * CHART_H;
+  return [
+    ...historyData.map(d => `${x(d).toFixed(1)},${y(d.highestSellPrice).toFixed(1)}`),
+    ...[...historyData].reverse().map(d => `${x(d).toFixed(1)},${y(d.lowesSellPrice).toFixed(1)}`),
+  ].join(' ');
+})();
+
+$: avgLine = (() => {
+  if (historyData.length < 2) return '';
+  const x = (d: PriceHistoryPoint) => PAD_L + ((new Date(d.timestamp).getTime() - minT) / timeRange) * chartW;
+  const y = (p: number) => PAD_T + (1 - (p - minP) / priceRange) * CHART_H;
+  return historyData.map(d => `${x(d).toFixed(1)},${y(d.averagePrice).toFixed(1)}`).join(' ');
+})();
+
+function getX(d: PriceHistoryPoint): number {
+  return PAD_L + ((new Date(d.timestamp).getTime() - minT) / timeRange) * chartW;
+}
+
+function getY(price: number): number {
+  return PAD_T + (1 - (price - minP) / priceRange) * CHART_H;
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (!historyData.length) return;
+  const rect = (e.currentTarget as SVGElement).getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  let closest = historyData[0];
+  let closestDist = Infinity;
+  for (const d of historyData) {
+    const dist = Math.abs(getX(d) - mouseX);
+    if (dist < closestDist) { closest = d; closestDist = dist; }
+  }
+  hoveredPoint = closest;
+  hoverX = getX(closest);
+}
+
+function onMouseLeave() {
+  hoveredPoint = null;
+}
+
+function fmtTime(ts: string): string {
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
 async function selectMarketItem(item: MarketItem) {
-  selectedMarketItem = item;
   marketSearch = formatItemName(item.name);
   marketDropdownOpen = false;
   marketData = null;
+  historyData = [];
+  hoveredPoint = null;
   marketLoading = true;
   marketError = false;
   try {
-    const res = await fetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/latest/comprehensive/${item.id}`);
-    if (!res.ok) throw new Error();
-    marketData = await res.json();
+    const [compRes, histRes] = await Promise.all([
+      fetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/latest/comprehensive/${item.id}`),
+      fetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/history/${item.id}`),
+    ]);
+    if (!compRes.ok) throw new Error();
+    marketData = await compRes.json();
+    if (histRes.ok) historyData = await histRes.json();
   } catch {
     marketError = true;
   } finally {
@@ -51,8 +138,9 @@ async function selectMarketItem(item: MarketItem) {
 }
 
 function onMarketInput() {
-  selectedMarketItem = null;
   marketData = null;
+  historyData = [];
+  hoveredPoint = null;
   marketDropdownOpen = marketSearch.trim().length >= 2;
 }
 
@@ -74,8 +162,9 @@ function closeDropdown() {
     <button class="market-clear" on:click={() => {
       marketSearch = '';
       marketDropdownOpen = false;
-      selectedMarketItem = null;
       marketData = null;
+      historyData = [];
+      hoveredPoint = null;
     }}>✕</button>
   {/if}
   {#if marketDropdownOpen && marketSuggestions.length > 0}
@@ -112,6 +201,80 @@ function closeDropdown() {
       <span class="market-avg-label">Volume 24h</span>
       <span class="market-avg-val">{marketData.tradeVolume1Day.toLocaleString()}</span>
     </div>
+  </div>
+
+  <div class="market-section-label">Price History (24h)</div>
+  <div class="chart-wrap" bind:clientWidth={containerWidth}>
+    {#if historyData.length >= 2}
+      <svg
+        width={containerWidth}
+        height={svgH}
+        on:mousemove={onMouseMove}
+        on:mouseleave={onMouseLeave}
+      >
+        {#if bandPoints}
+          <polygon points={bandPoints} fill="#e8b84b" fill-opacity="0.12" />
+        {/if}
+
+        {#if avgLine}
+          <polyline
+            points={avgLine}
+            fill="none"
+            stroke="#e8b84b"
+            stroke-width="1.5"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        {/if}
+
+        {#each historyData as d}
+          {@const bh = Math.max(1, (d.tradeVolume / maxVol) * VOL_H)}
+          {@const bx = getX(d)}
+          <rect
+            x={bx - 1.5}
+            y={PAD_T + CHART_H + VOL_GAP + (VOL_H - bh)}
+            width={3}
+            height={bh}
+            fill="#2a2d42"
+            rx="1"
+          />
+        {/each}
+
+        {#if hoveredPoint}
+          {@const hy = getY(hoveredPoint.averagePrice)}
+          <line
+            x1={hoverX} y1={PAD_T}
+            x2={hoverX} y2={PAD_T + CHART_H}
+            stroke="#3a3f58"
+            stroke-width="1"
+            stroke-dasharray="3,2"
+          />
+          <circle
+            cx={hoverX}
+            cy={hy}
+            r="3"
+            fill="#e8b84b"
+            stroke="#13151f"
+            stroke-width="1.5"
+          />
+        {/if}
+      </svg>
+
+      {#if hoveredPoint}
+        <div
+          class="chart-tooltip"
+          style="left: {hoverX < containerWidth / 2 ? hoverX + 8 : hoverX - 90}px; top: 4px;"
+        >
+          <div class="tooltip-time">{fmtTime(hoveredPoint.timestamp)}</div>
+          <div class="tooltip-row"><span>Avg</span><span>{formatGold(hoveredPoint.averagePrice)}</span></div>
+          <div class="tooltip-row"><span>Low</span><span>{formatGold(hoveredPoint.lowesSellPrice)}</span></div>
+          <div class="tooltip-row"><span>High</span><span>{formatGold(hoveredPoint.highestSellPrice)}</span></div>
+          <div class="tooltip-row"><span>Vol</span><span>{hoveredPoint.tradeVolume.toLocaleString()}</span></div>
+        </div>
+      {/if}
+    {:else}
+      <div class="chart-no-data">No history data available</div>
+    {/if}
   </div>
 
   <div class="market-books">
@@ -192,6 +355,60 @@ function closeDropdown() {
   }
   .market-avg-label { font-size: 8px; color: #474d6d; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
   .market-avg-val { font-size: 12px; font-weight: 700; color: #e8b84b; }
+
+  /* Price History Chart */
+  .chart-wrap {
+    position: relative;
+    background: #13151f;
+    border: 1px solid #1e2030;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    cursor: crosshair;
+    overflow: visible;
+  }
+
+  .chart-no-data {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: #3a3f58;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .chart-tooltip {
+    position: absolute;
+    background: #0e1018;
+    border: 1px solid #1e2030;
+    border-radius: 5px;
+    padding: 5px 7px;
+    pointer-events: none;
+    z-index: 10;
+    min-width: 82px;
+  }
+
+  .tooltip-time {
+    font-size: 9px;
+    font-weight: 700;
+    color: #e8b84b;
+    text-align: center;
+    margin-bottom: 3px;
+    letter-spacing: 0.5px;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 9px;
+    font-weight: 600;
+    color: #474d6d;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .tooltip-row span:last-child { color: #c8cad4; }
 
   .market-table-head {
     display: flex; justify-content: space-between; font-size: 8px; font-weight: 700;

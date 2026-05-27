@@ -99,7 +99,7 @@ onDestroy(() => {
     <button class="tab" class:active={activeTab === 'clients'} on:click={() => activeTab = 'clients'}>
       Clients
     </button>
-    <button class="tab" class:active={activeTab === 'tools'} on:click={() => { activeTab = 'tools'; activeTool = null; }}>
+    <button class="tab" class:active={activeTab === 'tools'} on:click={() => activeTab = 'tools'}>
       Tools
     </button>
   </div>
@@ -107,7 +107,7 @@ onDestroy(() => {
   <div class="content">
 
     <!-- ── Clients ── -->
-    {#if activeTab === 'clients'}
+    <div class:tab-hidden={activeTab !== 'clients'}>
       <div class="section-header">
         <span>Accounts</span>
         <button class="scan-btn" on:click={scan} title="Rescan">↺</button>
@@ -187,10 +187,10 @@ onDestroy(() => {
           {/each}
         </div>
       {/if}
-    {/if}
+    </div>
 
     <!-- ── Tools ── -->
-    {#if activeTab === 'tools'}
+    <div class:tab-hidden={activeTab !== 'tools'}>
       {#if activeTool}
         <div class="section-header">
           <button class="back-btn" on:click={() => activeTool = null}>← Back</button>
@@ -220,7 +220,7 @@ onDestroy(() => {
           {/if}
         </div>
       {/if}
-    {/if}
+    </div>
 
   </div>
 
@@ -364,6 +364,8 @@ onDestroy(() => {
   .calc-item-name { font-size: 12px; font-weight: 700; color: #d0d4e8; }
   .calc-item-desc { font-size: 10px; color: #3a3f58; }
   .calc-item-arrow { font-size: 18px; color: #3a3f58; }
+
+  .tab-hidden { display: none; }
 
   .footer { padding: 8px 14px; border-top: 1px solid #1a1c28; display: flex; justify-content: flex-end; }
   .version { font-size: 10px; color: #2a2d3e; letter-spacing: 0.5px; }

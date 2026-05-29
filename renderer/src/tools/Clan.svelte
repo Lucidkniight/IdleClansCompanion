@@ -2,12 +2,12 @@
   export const toolMeta = {
     name: 'Clan Leaderboard',
     desc: 'Clan XP leaderboard',
-    icon: '🏆',
+    icon: '🛡️',
   };
 </script>
 
 <script lang="ts">
-import { formatGold, xpToLevel, fetchProfile } from '../lib/store';
+import { formatGold, xpToLevel, fetchProfile, navigate, createNavListener } from '../lib/store';
 
 interface PlayerEntry {
   username: string;
@@ -24,6 +24,9 @@ let clanLoading = false;
 let clanError = false;
 let selectedSkill = 'Total';
 let dropdownOpen = false;
+
+const incomingNav = createNavListener('Clan Leaderboard');
+$: if ($incomingNav !== null) { clanInput = $incomingNav; fetchClan(); }
 
 $: skills = players.length
   ? ['Total', ...[...new Set(players.flatMap(p => Object.keys(p.skills)))].sort()]
@@ -76,6 +79,10 @@ function selectSkill(skill: string) {
   selectedSkill = skill;
   dropdownOpen = false;
 }
+
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 </script>
 
 <svelte:window on:click={() => (dropdownOpen = false)} />
@@ -104,9 +111,9 @@ function selectSkill(skill: string) {
 
   <div class="skill-dropdown" on:click|stopPropagation={() => (dropdownOpen = !dropdownOpen)}>
     <button class="skill-dropdown-trigger" class:open={dropdownOpen}>
-      <span>{selectedSkill}</span>
+      <span>{cap(selectedSkill)}</span>
       <svg width="8" height="5" viewBox="0 0 8 5" class="chevron" class:flipped={dropdownOpen}>
-        <path d="M0 0l4 5 4-5z" fill="#474d6d" />
+        <path d="M0 0l4 5 4-5z" fill="currentColor" />
       </svg>
     </button>
     {#if dropdownOpen}
@@ -117,7 +124,7 @@ function selectSkill(skill: string) {
             class:active={selectedSkill === skill}
             on:click|stopPropagation={() => selectSkill(skill)}
           >
-            {skill}
+            {cap(skill)}
           </button>
         {/each}
       </div>
@@ -128,8 +135,8 @@ function selectSkill(skill: string) {
     {#each rankedPlayers as player, i}
       {@const xp = selectedSkill === 'Total' ? player.totalXp : (player.skills[selectedSkill] ?? 0)}
       {@const level = selectedSkill !== 'Total' ? xpToLevel(xp) : null}
-      <div class="lb-row" class:lb-no-data={xp === 0}>
-        <span class="lb-rank" style="color: {RANK_COLORS[i] ?? '#474d6d'}">{i + 1}</span>
+      <div class="lb-row" class:lb-no-data={xp === 0} on:click={() => navigate('Player Lookup', player.username)}>
+        <span class="lb-rank" style="color: {RANK_COLORS[i] ?? 'var(--text-dim)'}">{i + 1}</span>
         <span class="lb-name">{player.username}</span>
         <div class="lb-right">
           {#if level !== null}
@@ -151,21 +158,21 @@ function selectSkill(skill: string) {
 
   .clan-input {
     flex: 1;
-    background: #13151f;
-    border: 1px solid #1e2030;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #c8cad4;
+    color: var(--text);
     font-size: 12px;
     padding: 7px 10px;
     font-family: 'Nunito', sans-serif;
   }
-  .clan-input:focus { outline: none; border-color: #e8b84b55; }
+  .clan-input:focus { outline: none; border-color: var(--accent-md); }
 
   .clan-search-btn {
-    background: #1a1c2e;
-    border: 1px solid #1e2030;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #e8b84b;
+    color: var(--accent);
     font-size: 13px;
     padding: 0 12px;
     cursor: pointer;
@@ -173,13 +180,13 @@ function selectSkill(skill: string) {
     font-family: 'Nunito', sans-serif;
     flex-shrink: 0;
   }
-  .clan-search-btn:hover:not(:disabled) { background: #22253a; border-color: #e8b84b55; }
+  .clan-search-btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--accent-md); }
   .clan-search-btn:disabled { opacity: 0.4; cursor: default; }
 
   .clan-status {
     text-align: center;
     font-size: 11px;
-    color: #3a3f58;
+    color: var(--text-faint);
     padding: 16px 0;
   }
   .clan-status.error { color: #7a3a3a; }
@@ -194,14 +201,14 @@ function selectSkill(skill: string) {
   .clan-name {
     font-size: 13px;
     font-weight: 700;
-    color: #c8cad4;
+    color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .clan-meta {
     font-size: 9px;
-    color: #474d6d;
+    color: var(--text-dim);
     white-space: nowrap;
     font-weight: 600;
     letter-spacing: 0.3px;
@@ -218,10 +225,10 @@ function selectSkill(skill: string) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: #13151f;
-    border: 1px solid #1e2030;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #c8cad4;
+    color: var(--text);
     font-size: 11px;
     font-weight: 600;
     padding: 6px 8px;
@@ -230,10 +237,11 @@ function selectSkill(skill: string) {
     transition: border-color 0.1s;
   }
   .skill-dropdown-trigger:hover,
-  .skill-dropdown-trigger.open { border-color: #e8b84b55; }
+  .skill-dropdown-trigger.open { border-color: var(--accent-md); }
 
   .chevron {
     flex-shrink: 0;
+    color: var(--text-dim);
     transition: transform 0.15s;
   }
   .chevron.flipped { transform: rotate(180deg); }
@@ -243,14 +251,14 @@ function selectSkill(skill: string) {
     top: calc(100% + 3px);
     left: 0;
     right: 0;
-    background: #1a1c2e;
-    border: 1px solid #1e2030;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
     border-radius: 6px;
     z-index: 20;
     max-height: 160px;
     overflow-y: auto;
     scrollbar-width: thin;
-    scrollbar-color: #1e2030 transparent;
+    scrollbar-color: var(--border) transparent;
     padding: 3px;
   }
 
@@ -261,7 +269,7 @@ function selectSkill(skill: string) {
     background: none;
     border: none;
     border-radius: 4px;
-    color: #8890b0;
+    color: var(--text-sub);
     font-size: 11px;
     font-weight: 600;
     padding: 5px 8px;
@@ -269,8 +277,8 @@ function selectSkill(skill: string) {
     cursor: pointer;
     transition: background 0.1s, color 0.1s;
   }
-  .skill-dropdown-item:hover { background: #13151f; color: #c8cad4; }
-  .skill-dropdown-item.active { color: #e8b84b; }
+  .skill-dropdown-item:hover { background: var(--bg-card); color: var(--text); }
+  .skill-dropdown-item.active { color: var(--accent); }
 
   .leaderboard {
     display: flex;
@@ -282,13 +290,16 @@ function selectSkill(skill: string) {
     display: flex;
     align-items: center;
     gap: 7px;
-    background: #13151f;
-    border: 1px solid #1e2030;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 5px;
     padding: 5px 8px;
     font-size: 11px;
     font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.1s;
   }
+  .lb-row:hover { border-color: var(--accent-md); }
   .lb-row.lb-no-data { opacity: 0.35; }
 
   .lb-rank {
@@ -300,7 +311,7 @@ function selectSkill(skill: string) {
   }
   .lb-name {
     flex: 1;
-    color: #c8cad4;
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -314,12 +325,12 @@ function selectSkill(skill: string) {
   }
   .lb-level {
     font-size: 9px;
-    color: #474d6d;
+    color: var(--text-dim);
     font-weight: 700;
   }
   .lb-xp {
     font-size: 11px;
-    color: #e8b84b;
+    color: var(--accent);
     font-weight: 700;
     min-width: 38px;
     text-align: right;

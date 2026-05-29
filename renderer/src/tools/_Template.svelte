@@ -3,11 +3,9 @@
   =============
   Copy this file, rename it (without the leading underscore), and it will
   be picked up automatically by the app — no changes to App.svelte needed.
-
-  Naming convention:
-    - Files starting with _ are ignored by the app (use for drafts / this template)
-    - All other .svelte files in this folder are auto-discovered and listed in the Tools tab
 -->
+
+
 
 <!-- ── Tool registration ───────────────────────────────────────────────────────
   This block runs at build time. Export toolMeta to register the tool.
@@ -23,36 +21,88 @@
   };
 </script>
 
+
+
 <!-- ── Tool logic ──────────────────────────────────────────────────────────────
   Local state and logic goes here.
-
-  To use shared game data, import from the store:
-    import { allItems, priceCache, profitTasks, profitSkills } from '../lib/store';
-
-  To use shared utilities, import from the store:
-    import { formatGold, formatTime, formatItemName, xpToLevel, XP_TABLE } from '../lib/store';
-
-  To load game data (tasks + prices) if not already loaded:
-    import { loadGameConfig } from '../lib/store';
-    import { onMount } from 'svelte';
-    onMount(async () => {
-      await loadGameConfig();
-    });
-
   The section header and back button are handled by App.svelte —
   your component only needs to render its own content.
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ STORES  ·  import { ... } from '../lib/store'                          │
+  │         ·  prefix with $ to read reactively  (e.g. $allItems)          │
+  ├──────────────────┬────────────────────────────┬────────────────────────┤
+  │ allItems         │ MarketItem[]               │ {id, name} for every   │
+  │                  │                            │ tradeable item         │
+  │ priceCache       │ Record<number, PriceData>  │ {lowestSell,           │
+  │                  │                            │ highestBuy} by item id │
+  │ profitTasks      │ Task[]                     │ All skill tasks        │
+  │ profitSkills     │ string[]                   │ Sorted skill names     │
+  ├──────────────────┴────────────────────────────┴────────────────────────┤
+  │ All four stores are empty until loadGameConfig() is called.            │
+  │ Import types for TypeScript:  import { type Task, type MarketItem,     │
+  │   type PriceData, type TaskCost } from '../lib/store'                  │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ UTILITY FUNCTIONS  ·  import { ... } from '../lib/store'               │
+  ├──────────────────────┬──────────┬──────────────────────────────────────┤
+  │ formatGold(n)        │ string   │ 1500→'1.5K'  2400000→'2.40M'  0→'—'  │
+  │ formatTime(s)        │ string   │ 3661→'1h 1m'  45→'45s'  90061→'1d 1h'│
+  │ formatItemName(s)    │ string   │ 'iron_ore' → 'Iron Ore'              │
+  │ xpToLevel(xp)        │ number   │ total XP → level (1–120)             │
+  ├──────────────────────┴──────────┴──────────────────────────────────────┤
+  │ CONSTANTS  ·  import { ... } from '../lib/store'                       │
+  ├──────────────────────┬──────────┬──────────────────────────────────────┤
+  │ XP_TABLE             │ number[] │ XP_TABLE[n-1] = XP needed for lvl n  │
+  │ GATHERING_SKILLS     │ string[] │ ['Woodcutting','Fishing','Mining',   │
+  │                      │          │  'Foraging'] — have Gatherers bonus  │
+  ├──────────────────────┴──────────┴──────────────────────────────────────┤
+  │ DATA LOADING  ·  import { loadGameConfig } from '../lib/store'         │
+  │                                                                        │
+  │  loadGameConfig()  Populates allItems, priceCache, profitTasks, and    │
+  │                    profitSkills. No-ops if already loaded. Call in     │
+  │                    onMount for any tool that uses those stores.        │
+  │                                                                        │
+  │    onMount(async () => { await loadGameConfig(); });                   │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ CROSS-TOOL NAVIGATION                                                  │
+  │                                                                        │
+  │  Sending  ·  import { navigate } from '../lib/store'                   │
+  │                                                                        │
+  │    navigate('Tool Name', param)                                        │
+  │      Switches to the Tools tab, opens the named tool, and delivers     │
+  │      param to it. Works from any tool component.                       │
+  │                                                                        │
+  │      <button on:click={() => navigate('Player Lookup', username)}>     │
+  │                                                                        │
+  │  Receiving  ·  import { createNavListener } from '../lib/store'        │
+  │                                                                        │
+  │    Call createNavListener with this tool's exact name. It returns a   │
+  │    readable store that emits the param string each time another tool   │
+  │    navigates here, and null at all other times. Each navigation fires  │
+  │    exactly once even if the component was already mounted.             │
+  │                                                                        │
+  │    const incomingNav = createNavListener('My Tool');                   │
+  │    $: if ($incomingNav !== null) {                                     │
+  │      myInput = $incomingNav;   // populate your input                  │
+  │      fetchData();              // then trigger your search/fetch       │
+  │    }                                                                   │
+  └────────────────────────────────────────────────────────────────────────┘
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  // import { profitTasks, loadGameConfig, formatGold, type Task } from '../lib/store';
 
   let message = 'Hello from My Tool!';
 
-  onMount(() => {
-    // Initialise your tool here
+  onMount(async () => {
+    // If your tool uses profitTasks / priceCache / allItems / profitSkills:
+    // await loadGameConfig();
   });
 </script>
 
-<!-- ── Template ───────────────────────────────────────────────────────────────
+
+
+<!-- ── HTML ───────────────────────────────────────────────────────────────
   Render your tool content here.
   You do not need a wrapper div — your root elements render directly
   inside the scrollable .content area of the sidebar.
@@ -61,18 +111,50 @@
   <p class="message">{message}</p>
 </div>
 
-<!-- ── Styles ─────────────────────────────────────────────────────────────────
-  Styles are scoped to this component by default — no need to worry about
-  clashing with other tools or the base app.
 
-  Shared colour tokens used across the app:
-    Background:   #0e0f15 (app), #13151f (cards/inputs), #0c0d13 (deep)
-    Border:       #1e2030
-    Text:         #c8cad4 (primary), #8890b0 (secondary), #555870 (muted), #3a3f58 (faint)
-    Accent:       #e8b84b (gold)
-    Positive:     #4ade80 (green)
-    Negative:     #e05555 (red)
-    Font:         'Nunito', sans-serif (UI), 'Cinzel', serif (headings)
+
+<!-- ── Styles ─────────────────────────────────────────────────────────────────
+
+  Use CSS custom properties instead of hardcoded hex colours.
+  The app supports several themes — variables automatically update when the user
+  switches themes. All theme pallets can be viewed in the app.svelte file if needed.
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Hex values shown are dark theme defaults — they adapt per theme.        │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ BACKGROUND                                                              │
+  │   var(--bg-deep)     #0c0d13   Deepest inset areas (detail panels)      │
+  │   var(--bg-base)     #0e0f15   Main app background                      │
+  │   var(--bg-card)     #13151f   Cards, inputs, rows                      │
+  │   var(--bg-hover)    #161824   Hover state for interactive elements     │
+  │   var(--bg-raised)   #1a1c2e   Slightly elevated surfaces               │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ BORDERS                                                                 │
+  │   var(--border)      #1e2030   Standard border colour                   │
+  │   var(--divider)     #1a1c28   Subtle separator lines                   │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ TEXT                                                                    │
+  │   var(--text)        #c8cad4   Primary body text                        │
+  │   var(--text-hi)     #d0d4e8   High-emphasis text (names, values)       │
+  │   var(--text-sub)    #8890b0   Secondary / supporting text              │
+  │   var(--text-muted)  #555870   De-emphasised labels                     │
+  │   var(--text-dim)    #474d6d   Dimmed detail text                       │
+  │   var(--text-faint)  #3a3f58   Placeholder and very muted text          │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ ACCENT                                                                  │
+  │   var(--accent)      #e8b84b   Theme accent — active states, values     │
+  │   var(--accent-lo)   @17%      Subtle borders / fills                   │
+  │   var(--accent-md)   @33%      Focus rings, toggle bg                   │
+  │   var(--accent-hi)   @53%      Active/selected borders                  │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ SEMANTIC                                                                │
+  │   var(--pos)         #4ade80   Positive / profit                        │
+  │   var(--neg)         #e05555   Negative / loss                          │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ TYPOGRAPHY                                                              │
+  │   font-family: 'Nunito', sans-serif   — all UI text                     │
+  │   font-family: 'Cinzel', serif        — headings / display text only    │
+  └─────────────────────────────────────────────────────────────────────────┘
 -->
 <style>
   .container {
@@ -83,6 +165,6 @@
 
   .message {
     font-size: 12px;
-    color: #8890b0;
+    color: var(--text-sub);
   }
 </style>

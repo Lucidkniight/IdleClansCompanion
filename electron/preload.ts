@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setIgnoreMouse: (ignore: boolean) => ipcRenderer.invoke('set-ignore-mouse', ignore),
   onUpdateReady: (callback: () => void) => ipcRenderer.on('update-ready', callback),
   restartAndUpdate: () => ipcRenderer.invoke('restart-and-update'),
+  setAlwaysOnTop: (value: boolean) => ipcRenderer.invoke('set-always-on-top', value),
   getWindowPreviews: (ids: number[]) => ipcRenderer.invoke('get-window-previews', ids),
 });
 

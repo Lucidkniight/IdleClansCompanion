@@ -66,7 +66,7 @@ ipcMain.handle('get-window-previews', async (_event, ids: number[]) => {
     const result: Record<number, string> = {};
     for (const source of sources) {
       const hwnd = parseInt(source.id.split(':')[1], 10);
-      if (ids.includes(hwnd)) {
+      if (ids.includes(hwnd) && !source.thumbnail.isEmpty()) {
         result[hwnd] = source.thumbnail.toDataURL();
       }
     }
@@ -80,6 +80,10 @@ ipcMain.handle('get-window-previews', async (_event, ids: number[]) => {
 
 ipcMain.handle('restart-and-update', () => {
   autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('set-always-on-top', (_event, value: boolean) => {
+  mainWindow.setAlwaysOnTop(value);
 });
 
 
@@ -167,7 +171,8 @@ function snapActiveWindow(bringToTop = false) {
 app.on('before-quit', () => {
   try {
     const all = windowManager.getWindows();
-    all.filter((w: any) => w.getTitle().includes('Idle Clans'))
+    const validTitleRegex = /^Idle Clans(?: \[[^\]]+\])?$/;
+    all.filter((w: any) => validTitleRegex.test(w.getTitle()))
       .forEach((w: any) => {
         w.restore();
         w.setBounds({ x: 100, y: 100, width: 1280, height: 720 });

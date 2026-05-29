@@ -1,4 +1,4 @@
-import { writable, derived, get } from 'svelte/store';
+import { writable, derived, get, type Readable } from 'svelte/store';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface GameWindow {
@@ -113,6 +113,23 @@ export const priceCache   = writable<Record<number, PriceData>>({});
 export const profitTasks  = writable<Task[]>([]);
 export const profitSkills = writable<string[]>([]);
 
+export interface ToolNav { tool: string; param: string; id: number; }
+export const toolNavigation = writable<ToolNav | null>(null);
+let _navId = 0;
+export function navigate(tool: string, param: string) {
+  toolNavigation.set({ tool, param, id: ++_navId });
+}
+export function createNavListener(toolName: string): Readable<string | null> {
+  let lastSeen = -1;
+  return derived(toolNavigation, ($nav): string | null => {
+    if ($nav?.tool === toolName && $nav.id !== lastSeen) {
+      lastSeen = $nav.id;
+      return $nav.param;
+    }
+    return null;
+  });
+}
+
 // ── Actions ───────────────────────────────────────────────────────────────────
 function extractPlayerName(title: string): string | null {
   const match = title.match(/^Idle Clans(?:\s+\[([^\]]+)\])?$/i);
@@ -180,10 +197,14 @@ export async function focusClient(id: number | null) {
 
 export async function refreshPreviews() {
   const current = get(clients);
-  if (current.length === 0) return;
+  if (current.length === 0) { previews.set({}); return; }
   const ids = current.map(c => c.win.id);
+  const idSet = new Set(ids);
   const result = await (window as any).electronAPI.getWindowPreviews(ids);
-  previews.set(result);
+  previews.update(prev => {
+    const cleaned = Object.fromEntries(Object.entries(prev).filter(([k]) => idSet.has(Number(k))));
+    return { ...cleaned, ...result };
+  });
 }
 
 export async function refreshPrices() {

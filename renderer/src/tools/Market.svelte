@@ -213,14 +213,14 @@ function closeDropdown() {
         on:mouseleave={onMouseLeave}
       >
         {#if bandPoints}
-          <polygon points={bandPoints} fill="#e8b84b" fill-opacity="0.12" />
+          <polygon points={bandPoints} class="chart-band" fill-opacity="0.12" />
         {/if}
 
         {#if avgLine}
           <polyline
             points={avgLine}
+            class="chart-line"
             fill="none"
-            stroke="#e8b84b"
             stroke-width="1.5"
             stroke-linejoin="round"
             stroke-linecap="round"
@@ -235,7 +235,7 @@ function closeDropdown() {
             y={PAD_T + CHART_H + VOL_GAP + (VOL_H - bh)}
             width={3}
             height={bh}
-            fill="#2a2d42"
+            class="chart-vol-bar"
             rx="1"
           />
         {/each}
@@ -245,7 +245,7 @@ function closeDropdown() {
           <line
             x1={hoverX} y1={PAD_T}
             x2={hoverX} y2={PAD_T + CHART_H}
-            stroke="#3a3f58"
+            class="chart-crosshair"
             stroke-width="1"
             stroke-dasharray="3,2"
           />
@@ -253,8 +253,7 @@ function closeDropdown() {
             cx={hoverX}
             cy={hy}
             r="3"
-            fill="#e8b84b"
-            stroke="#13151f"
+            class="chart-dot"
             stroke-width="1.5"
           />
         {/if}
@@ -311,56 +310,55 @@ function closeDropdown() {
   .market-search-wrap { position: relative; margin-bottom: 8px; }
 
   .market-input {
-    width: 100%; background: #13151f; border: 1px solid #1e2030;
-    border-radius: 6px; color: #c8cad4; font-size: 12px;
+    width: 100%; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 12px;
     padding: 7px 10px; font-family: 'Nunito', sans-serif; padding-right: 28px;
   }
-  .market-input:focus { outline: none; border-color: #e8b84b55; }
+  .market-input:focus { outline: none; border-color: var(--accent-md); }
 
   .market-clear {
     position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
-    background: none; border: none; color: #3a3f58; font-size: 11px;
+    background: none; border: none; color: var(--text-faint); font-size: 11px;
     cursor: pointer; padding: 2px 4px; line-height: 1; transition: color 0.15s; width: auto;
   }
-  .market-clear:hover { color: #e8b84b; }
+  .market-clear:hover { color: var(--accent); }
 
   .market-dropdown {
     position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-    background: #13151f; border: 1px solid #1e2030; border-radius: 6px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
     max-height: 200px; overflow-y: auto; z-index: 100;
-    scrollbar-width: thin; scrollbar-color: #1e2030 transparent;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
   }
 
   .market-suggestion {
-    width: 100%; background: none; border: none; border-bottom: 1px solid #1a1c28;
-    color: #8890b0; font-size: 11px; padding: 7px 10px; text-align: left;
+    width: 100%; background: none; border: none; border-bottom: 1px solid var(--divider);
+    color: var(--text-sub); font-size: 11px; padding: 7px 10px; text-align: left;
     cursor: pointer; transition: background 0.1s, color 0.1s;
     border-radius: 0; font-family: 'Nunito', sans-serif;
   }
   .market-suggestion:last-child { border-bottom: none; }
-  .market-suggestion:hover { background: #1a1c28; color: #e8b84b; }
+  .market-suggestion:hover { background: var(--divider); color: var(--accent); }
 
-  .market-status { text-align: center; font-size: 11px; color: #3a3f58; padding: 16px 0; }
+  .market-status { text-align: center; font-size: 11px; color: var(--text-faint); padding: 16px 0; }
   .market-status.error { color: #7a3a3a; }
 
   .market-section-label {
     font-size: 9px; font-weight: 700; letter-spacing: 1px;
-    text-transform: uppercase; color: #3a3f58; margin: 10px 0 5px;
+    text-transform: uppercase; color: var(--text-faint); margin: 10px 0 5px;
   }
 
   .market-avg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 4px; }
   .market-avg-box {
-    background: #13151f; border: 1px solid #1e2030; border-radius: 6px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
     padding: 7px 8px; display: flex; flex-direction: column; align-items: center; gap: 3px;
   }
-  .market-avg-label { font-size: 8px; color: #474d6d; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
-  .market-avg-val { font-size: 12px; font-weight: 700; color: #e8b84b; }
+  .market-avg-label { font-size: 8px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+  .market-avg-val { font-size: 12px; font-weight: 700; color: var(--accent); }
 
-  /* Price History Chart */
   .chart-wrap {
     position: relative;
-    background: #13151f;
-    border: 1px solid #1e2030;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 6px;
     margin-bottom: 4px;
     cursor: crosshair;
@@ -373,14 +371,20 @@ function closeDropdown() {
     align-items: center;
     justify-content: center;
     font-size: 10px;
-    color: #3a3f58;
+    color: var(--text-faint);
     font-family: 'Nunito', sans-serif;
   }
 
+  .chart-band { fill: var(--accent); }
+  .chart-line { stroke: var(--accent); }
+  .chart-vol-bar { fill: var(--border); }
+  .chart-crosshair { stroke: var(--text-faint); }
+  .chart-dot { fill: var(--accent); stroke: var(--bg-card); }
+
   .chart-tooltip {
     position: absolute;
-    background: #0e1018;
-    border: 1px solid #1e2030;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
     border-radius: 5px;
     padding: 5px 7px;
     pointer-events: none;
@@ -391,7 +395,7 @@ function closeDropdown() {
   .tooltip-time {
     font-size: 9px;
     font-weight: 700;
-    color: #e8b84b;
+    color: var(--accent);
     text-align: center;
     margin-bottom: 3px;
     letter-spacing: 0.5px;
@@ -404,28 +408,28 @@ function closeDropdown() {
     gap: 8px;
     font-size: 9px;
     font-weight: 600;
-    color: #474d6d;
+    color: var(--text-dim);
     font-family: 'Nunito', sans-serif;
   }
 
-  .tooltip-row span:last-child { color: #c8cad4; }
+  .tooltip-row span:last-child { color: var(--text); }
 
   .market-table-head {
     display: flex; justify-content: space-between; font-size: 8px; font-weight: 700;
-    letter-spacing: 0.5px; color: #474d6d; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-dim); text-transform: uppercase;
     padding: 0 8px; margin-bottom: 2px;
   }
   .market-table-row {
-    display: flex; justify-content: space-between; background: #13151f;
-    border: 1px solid #1e2030; border-radius: 5px; padding: 5px 8px;
+    display: flex; justify-content: space-between; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px;
     font-size: 11px; font-weight: 600;
   }
-  .market-table-row.buy { color: #e05555; border-left: 2px solid #e0555544; }
-  .market-table-row.sell { color: #4ade80; border-left: 2px solid #4ade8044; }
+  .market-table-row.buy { color: var(--neg); border-left: 2px solid var(--neg); }
+  .market-table-row.sell { color: var(--pos); border-left: 2px solid var(--pos); }
 
   .market-books { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .market-book { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .market-book .market-section-label { text-align: center; }
-  .sell-label { color: #4ade80; }
-  .buy-label { color: #e05555; }
+  .sell-label { color: var(--pos); }
+  .buy-label { color: var(--neg); }
 </style>

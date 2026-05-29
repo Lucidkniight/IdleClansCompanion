@@ -32,10 +32,10 @@ function save() {
     width: 100%;
     flex: 1;
     min-height: 0;
-    background: #13151f;
-    border: 1px solid #1e2030;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #c8cad4;
+    color: var(--text);
     font-family: 'Nunito', sans-serif;
     font-size: 12px;
     line-height: 1.6;
@@ -43,8 +43,8 @@ function save() {
     resize: none;
     outline: none;
     scrollbar-width: thin;
-    scrollbar-color: #1e2030 transparent;
+    scrollbar-color: var(--border) transparent;
   }
-  .notepad:focus { border-color: #e8b84b55; }
-  .notepad::placeholder { color: #3a3f58; }
+  .notepad:focus { border-color: var(--accent-md); }
+  .notepad::placeholder { color: var(--text-faint); }
 </style>

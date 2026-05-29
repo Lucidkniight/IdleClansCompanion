@@ -15,50 +15,38 @@ Detects any open Idle Clans game clients on your system and displays them in a c
 
 ### 🧰 Tools
 
-A searchable collection of tools accessible from the Tools tab. Search by name or description to find what you need quickly. More tools will be added over time.
+A searchable collection of tools accessible from the Tools tab.
 
 ---
 
 #### 💸 Profit Calculator
-
-Estimates gold profit per hour for any task across all production skills including Smithing, Cooking, Fishing, Woodcutting, Mining, Carpentry, Crafting, Brewing, Foraging, Farming, Agility, Enchanting, and Plundering.
-
-- Profit, input cost, and output value per hour
-- Actions per hour and task time after modifiers
-- Supports tool tier, gear pieces, jewelry, mastery cape, gatherers upgrade, and sell speed modifiers
-- Market prices refresh automatically every 5 minutes
-
-> ⚠️ Profit figures are estimates only. Formula accuracy is not guaranteed.
-
----
+Estimates gold profit per hour for any production skill task. Supports tool tier, gear, jewelry, mastery cape, gatherers upgrade, and sell speed modifiers. Market prices refresh every 5 minutes.
+> ⚠️ Estimates only — formula accuracy is not guaranteed.
 
 #### ✨ XP Calculator
-
-Estimates experience per hour and time to goal level for any task across all supported skills.
-
-- XP per hour and XP per action
-- Time to goal level and actions needed
-- Supports all the same modifiers as the Profit Calculator, plus clan housing bonus
-
-> ⚠️ XP figures are estimates only. Formula accuracy is not guaranteed.
-
----
+Estimates XP per hour and time to goal level for any task. Supports all the same modifiers as the Profit Calculator, plus clan housing bonus.
+> ⚠️ Estimates only — formula accuracy is not guaranteed.
 
 #### 🏪 Market
+Browse live buy and sell prices for any item. Includes order books, price averages over 1, 7, and 30 days, 24h trade volume, and a 24h price history chart.
 
-Browse live prices for any item in the game.
+#### 🏆 Clan Cup
+Live Cup leaderboard filterable by category — total points, individual skills, boss kills, special objectives, and speed runs. Search any clan to see all their standings at once.
 
-- Search any item by name with instant autocomplete
-- View live buy and sell order books
-- Price averages over 1 day, 7 days, and 30 days
-- 24-hour trade volume
-- All data sourced live from the official Idle Clans API
+#### 🛡️ Clan Leaderboard
+Enter a clan name to see a full XP leaderboard for its members. Filter by any individual skill using the dropdown. Click any player to jump directly to their profile.
+
+#### 🔎 Player Lookup
+Search any player by name. Shows every skill with level, XP, and progress bar, plus upgrades, enchantments, PvM kill counts, game mode badge, online status, and last logged activity.
+
+#### 📝 Notepad
+A plain notepad that persists locally. Useful for tracking goals, clan notes, or anything else you want to keep handy.
 
 ---
 
-#### 📝 Notepad
+### 🎨 Themes
 
-A simple notepad that saves automatically to your local machine. Useful for tracking goals, clan notes, or anything else you want to keep handy while playing.
+Nine built-in themes selectable from the settings menu: Dark, Light, Vaporwave, Slate, Forest, Ocean, Midnight, Rose, and Ember.
 
 ---
 

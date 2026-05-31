@@ -26,7 +26,7 @@ const SKILL_GROUPS: { label: string; keys: string[] }[] = [
   { label: 'Combat',     keys: ['attack', 'strength', 'defence', 'archery', 'magic', 'health'] },
   { label: 'Gathering',  keys: ['woodcutting', 'fishing', 'mining', 'foraging', 'farming'] },
   { label: 'Processing', keys: ['cooking', 'smithing', 'crafting', 'carpentry', 'brewing', 'enchanting'] },
-  { label: 'Other',      keys: ['agility', 'plundering'] },
+  { label: 'Other',      keys: ['agility', 'plundering', 'exterminating', 'invocation'] },
 ];
 
 let searchInput = '';
@@ -175,17 +175,10 @@ function onKeydown(e: KeyboardEvent) {
       <span class="stat-val">{formatGold(totalXp)}</span>
       <span class="stat-lbl">Total XP</span>
     </div>
-    {#if profile.taskNameOnLogout}
-      <div class="stat-box stat-box-wide">
-        <span class="activity-val">{formatItemName(profile.taskNameOnLogout)}</span>
-        <span class="stat-lbl">Last Activity</span>
-      </div>
-    {:else}
-      <div class="stat-box">
-        <span class="stat-val">{allSkills.length}</span>
-        <span class="stat-lbl">Skills</span>
-      </div>
-    {/if}
+    <div class="stat-box stat-box-wide">
+      <span class="activity-val">{profile.taskNameOnLogout ? formatItemName(profile.taskNameOnLogout) : '—'}</span>
+      <span class="stat-lbl">Last Activity</span>
+    </div>
   </div>
 
   <!-- Skills -->
@@ -233,9 +226,7 @@ function onKeydown(e: KeyboardEvent) {
       {#each enchantEntries as [key, val]}
         <div class="upgrade-tag">
           <span class="upgrade-name">{formatUpgradeName(key)}</span>
-          {#if val > 1}
-            <span class="upgrade-level">×{val}</span>
-          {/if}
+          <span class="upgrade-level">{val}%</span>
         </div>
       {/each}
     </div>

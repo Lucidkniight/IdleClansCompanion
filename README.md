@@ -33,11 +33,14 @@ Browse live buy and sell prices for any item. Includes order books, price averag
 #### 🏆 Clan Cup
 Live Cup leaderboard filterable by category — total points, individual skills, boss kills, special objectives, and speed runs. Search any clan to see all their standings at once.
 
-#### 🛡️ Clan Leaderboard
-Enter a clan name to see a full XP leaderboard for its members. Filter by any individual skill using the dropdown. Click any player to jump directly to their profile.
+#### 🛡️ Clan
+Enter a clan name to see a full XP leaderboard for its members, defaulting to lifetime XP with a toggle to switch to contributed XP. Filter by any individual skill using the dropdown. Click any player to jump directly to their profile. Also shows your clan's current **Clan Cup standings** — tabbed by Skills, Kills, Speed, and Points — including estimated weekly cup credits and a countdown to the Sunday reset.
 
 #### 🔎 Player Lookup
 Search any player by name. Shows every skill with level, XP, and progress bar, plus upgrades, enchantments, PvM kill counts, game mode badge, online status, and last logged activity.
+
+#### ✅ Completionist Calculator
+Track your progress toward the completionist cape. Shows all 20 required skills, highlights which you've maxed, and displays a running count of how many remain.
 
 #### 📝 Notepad
 A plain notepad that persists locally. Useful for tracking goals, clan notes, or anything else you want to keep handy.

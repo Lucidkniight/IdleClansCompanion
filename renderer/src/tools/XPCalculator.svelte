@@ -9,9 +9,9 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import {
-  profitTasks, profitSkills,
+  profitTasks, profitSkills, clients, toolNavigation,
   loadGameConfig, GATHERING_SKILLS, XP_TABLE, xpToLevel, formatGold, formatTime,
-  type Task,
+  type Task, type ClientCard,
 } from '../lib/store';
 
 const TOOL_TIERS = [
@@ -63,8 +63,58 @@ let modCapeTier = 0;
 let modGatherers = false;
 let modHousing = 0;
 
+const _XP_MODS_KEY = 'icc-xp-mods';
+const _xpSkillMods: Record<string, { modTool: number; modGearPieces: number; modJewelryType: number; modJewelryPieces: number; modCapeTier: number; modGatherers: boolean; modHousing: number }> = (() => {
+  try { return JSON.parse(localStorage.getItem(_XP_MODS_KEY) ?? '{}'); } catch { return {}; }
+})();
+const _defaultXpMods = () => ({ modTool: 0, modGearPieces: 0, modJewelryType: 0, modJewelryPieces: 0, modCapeTier: 0, modGatherers: false, modHousing: 0 });
+
+$: if (selectedSkill) {
+  const _m = _xpSkillMods[selectedSkill] ?? _defaultXpMods();
+  modTool = _m.modTool; modGearPieces = _m.modGearPieces;
+  modJewelryType = _m.modJewelryType; modJewelryPieces = _m.modJewelryPieces;
+  modCapeTier = _m.modCapeTier; modGatherers = _m.modGatherers;
+  modHousing = _m.modHousing;
+}
+
+$: if (selectedSkill) {
+  _xpSkillMods[selectedSkill] = { modTool, modGearPieces, modJewelryType, modJewelryPieces, modCapeTier, modGatherers, modHousing };
+  try { localStorage.setItem(_XP_MODS_KEY, JSON.stringify(_xpSkillMods)); } catch {}
+}
+
 let xpCurrentXp = 0;
 let xpGoalLevel = 99;
+let xpFieldAuto = false;
+let goalFieldAuto = false;
+
+let autoFilledFields = new Set<string>();
+let autoFillTimer: ReturnType<typeof setTimeout>;
+let _xpNavId = -1;
+
+$: {
+  const _nav = $toolNavigation;
+  if (_nav?.tool === 'XP Calculator' && _nav.id !== _xpNavId) {
+    _xpNavId = _nav.id;
+    applyNav(_nav.param);
+  }
+}
+
+async function applyNav(param: string) {
+  const [skill, rawXp, rawGoal] = param.split(',');
+  if ($profitTasks.length === 0) {
+    loading = true;
+    await loadGameConfig();
+    loading = false;
+  }
+  const filled = new Set<string>();
+  if (skill && $profitSkills.includes(skill)) { selectedSkill = skill; filled.add('skill'); }
+  if (rawXp) { xpCurrentXp = parseInt(rawXp, 10); filled.add('xp'); xpFieldAuto = true; }
+  if (rawGoal) { xpGoalLevel = parseInt(rawGoal, 10); filled.add('goal'); goalFieldAuto = true; }
+  selectedTask = null;
+  autoFilledFields = filled;
+  clearTimeout(autoFillTimer);
+  autoFillTimer = setTimeout(() => { autoFilledFields = new Set(); }, 2000);
+}
 
 onMount(async () => {
   if ($profitTasks.length === 0) {
@@ -100,6 +150,16 @@ $: xpTasks = (() => {
 })();
 
 $: xpCurrentLevel = xpToLevel(xpCurrentXp);
+$: clientsWithProfile = $clients.filter(c => c.playerName && c.profile?.skillExperiences);
+
+function fillFromClient(client: ClientCard) {
+  const xp = client.profile?.skillExperiences?.[selectedSkill.toLowerCase()] ?? 0;
+  xpCurrentXp = xp;
+  xpFieldAuto = true;
+  autoFilledFields = new Set(['xp']);
+  clearTimeout(autoFillTimer);
+  autoFillTimer = setTimeout(() => { autoFilledFields = new Set(); }, 2000);
+}
 </script>
 
 {#if loading}
@@ -113,10 +173,20 @@ $: xpCurrentLevel = xpToLevel(xpCurrentXp);
         <button
           class="skill-btn"
           class:active={selectedSkill === skill}
+          class:autofill={autoFilledFields.has('skill') && selectedSkill === skill}
           on:click={() => { selectedSkill = skill; selectedTask = null; }}
         >{skill}</button>
       {/each}
     </div>
+    {#if clientsWithProfile.length}
+      <div class="clients-row">
+        {#each clientsWithProfile as client}
+          <button class="client-chip" on:click={() => fillFromClient(client)}>
+            {client.playerName}
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <div class="field">
@@ -124,11 +194,11 @@ $: xpCurrentLevel = xpToLevel(xpCurrentXp);
     <div class="goal-row">
       <div class="goal-field">
         <span class="mod-label">Current XP</span>
-        <input class="select" type="number" min="0" bind:value={xpCurrentXp} placeholder="0" />
+        <input class="select" class:autofill={autoFilledFields.has('xp')} class:field-auto={xpFieldAuto} type="number" min="0" bind:value={xpCurrentXp} placeholder="0" on:input={() => xpFieldAuto = false} />
       </div>
       <div class="goal-field">
         <span class="mod-label">Goal level</span>
-        <input class="select" type="number" min="1" max="120" bind:value={xpGoalLevel} placeholder="99" />
+        <input class="select" class:autofill={autoFilledFields.has('goal')} class:field-auto={goalFieldAuto} type="number" min="1" max="120" bind:value={xpGoalLevel} placeholder="99" on:input={() => goalFieldAuto = false} />
       </div>
     </div>
     {#if xpCurrentXp > 0}
@@ -245,6 +315,14 @@ $: xpCurrentLevel = xpToLevel(xpCurrentXp);
   .skill-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
   .skill-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
 
+  .clients-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .client-chip {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-sub); font-size: 10px; font-weight: 600; padding: 3px 8px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: border-color 0.1s, color 0.1s; width: auto;
+  }
+  .client-chip:hover { border-color: var(--accent-md); color: var(--accent); }
+
   .goal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .goal-field { display: flex; flex-direction: column; gap: 4px; }
   .current-level { font-size: 10px; color: var(--text-faint); }
@@ -296,4 +374,12 @@ $: xpCurrentLevel = xpToLevel(xpCurrentXp);
 
   .pos { color: var(--pos); }
   .req-fail { color: #863131; }
+  .field-auto { border-color: var(--accent-md) !important; background: color-mix(in srgb, var(--accent) 7%, var(--bg-card)) !important; }
+
+  @keyframes autofill-glow {
+    0%   { border-color: var(--accent-md); box-shadow: 0 0 0 2px var(--accent-lo); }
+    60%  { border-color: var(--accent-md); box-shadow: 0 0 0 2px var(--accent-lo); }
+    100% { border-color: var(--border);    box-shadow: none; }
+  }
+  .autofill { animation: autofill-glow 2s ease-out forwards; }
 </style>

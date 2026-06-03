@@ -35,16 +35,30 @@ const PAD_L = 4;
 const PAD_R = 4;
 const VOL_GAP = 4;
 
+const WIKI_BASE = 'https://idleclans.wiki/w/';
+
 let marketSearch = '';
 let marketDropdownOpen = false;
+let selectedItemName = '';
+type Period = '24h' | '7d' | '30d' | '1y';
+let selectedPeriod: Period = '24h';
 let marketData: ComprehensivePrice | null = null;
 let historyData: PriceHistoryPoint[] = [];
+let historyCache: Partial<Record<Period, PriceHistoryPoint[]>> = {};
 let marketLoading = false;
 let marketError = false;
 
 let containerWidth = 260;
 let hoveredPoint: PriceHistoryPoint | null = null;
 let hoverX = 0;
+
+$: isUntradeable = marketData !== null &&
+  marketData.averagePrice1Day === 0 &&
+  marketData.averagePrice7Days === 0 &&
+  marketData.averagePrice30Days === 0 &&
+  marketData.tradeVolume1Day === 0 &&
+  marketData.lowestSellPricesWithVolume.length === 0 &&
+  marketData.highestBuyPricesWithVolume.length === 0;
 
 $: marketSuggestions = marketSearch.trim().length >= 2
   ? $allItems
@@ -111,25 +125,58 @@ function onMouseLeave() {
 }
 
 function fmtTime(ts: string): string {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  const d = new Date(ts);
+  if (selectedPeriod === '24h') {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  if (selectedPeriod === '7d') {
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+           d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function openWiki() {
+  const title = selectedItemName.charAt(0).toUpperCase() + selectedItemName.slice(1);
+  (window as any).electronAPI.openExternal(WIKI_BASE + encodeURIComponent(title));
+}
+
+function changePeriod(p: Period) {
+  if (selectedPeriod === p) return;
+  selectedPeriod = p;
+  hoveredPoint = null;
+  historyData = historyCache[p] ?? [];
 }
 
 async function selectMarketItem(item: MarketItem) {
   marketSearch = formatItemName(item.name);
+  selectedItemName = item.name;
+  selectedPeriod = '24h';
   marketDropdownOpen = false;
   marketData = null;
   historyData = [];
+  historyCache = {};
   hoveredPoint = null;
   marketLoading = true;
   marketError = false;
+  const base = `https://query.idleclans.com/api/PlayerMarket/items/prices/history/${item.id}`;
   try {
-    const [compRes, histRes] = await Promise.all([
+    const [compRes, h24, h7d, h30d, h1y] = await Promise.all([
       fetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/latest/comprehensive/${item.id}`),
-      fetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/history/${item.id}`),
+      fetch(base),
+      fetch(`${base}?period=7d`),
+      fetch(`${base}?period=30d`),
+      fetch(`${base}?period=1y`),
     ]);
     if (!compRes.ok) throw new Error();
     marketData = await compRes.json();
-    if (histRes.ok) historyData = await histRes.json();
+    const cache: typeof historyCache = {};
+    if (h24.ok)  cache['24h'] = await h24.json();
+    if (h7d.ok)  cache['7d']  = await h7d.json();
+    if (h30d.ok) cache['30d'] = await h30d.json();
+    if (h1y.ok)  cache['1y']  = await h1y.json();
+    historyCache = cache;
+    historyData = cache['24h'] ?? [];
   } catch {
     marketError = true;
   } finally {
@@ -138,8 +185,11 @@ async function selectMarketItem(item: MarketItem) {
 }
 
 function onMarketInput() {
+  selectedItemName = '';
+  selectedPeriod = '24h';
   marketData = null;
   historyData = [];
+  historyCache = {};
   hoveredPoint = null;
   marketDropdownOpen = marketSearch.trim().length >= 2;
 }
@@ -161,9 +211,12 @@ function closeDropdown() {
   {#if marketSearch.length > 0}
     <button class="market-clear" on:click={() => {
       marketSearch = '';
+      selectedItemName = '';
+      selectedPeriod = '24h';
       marketDropdownOpen = false;
       marketData = null;
       historyData = [];
+      historyCache = {};
       hoveredPoint = null;
     }}>✕</button>
   {/if}
@@ -183,6 +236,10 @@ function closeDropdown() {
 {:else if marketError}
   <div class="market-status error">Could not load market data</div>
 {:else if marketData}
+  <button class="wiki-btn" on:click={openWiki}>Open in Wiki</button>
+  {#if isUntradeable}
+    <div class="market-untradeable">This item is not tradeable</div>
+  {:else}
   <div class="market-section-label">Price Averages</div>
   <div class="market-avg-row">
     <div class="market-avg-box">
@@ -203,7 +260,15 @@ function closeDropdown() {
     </div>
   </div>
 
-  <div class="market-section-label">Price History (24h)</div>
+  <div class="market-chart-header">
+    <div class="market-section-label">Price History</div>
+    <div class="period-tabs">
+      <button class="period-tab" class:active={selectedPeriod === '24h'} on:click={() => changePeriod('24h')}>24H</button>
+      <button class="period-tab" class:active={selectedPeriod === '7d'}  on:click={() => changePeriod('7d')}>7D</button>
+      <button class="period-tab" class:active={selectedPeriod === '30d'} on:click={() => changePeriod('30d')}>30D</button>
+      <button class="period-tab" class:active={selectedPeriod === '1y'}  on:click={() => changePeriod('1y')}>1Y</button>
+    </div>
+  </div>
   <div class="chart-wrap" bind:clientWidth={containerWidth}>
     {#if historyData.length >= 2}
       <svg
@@ -272,7 +337,7 @@ function closeDropdown() {
         </div>
       {/if}
     {:else}
-      <div class="chart-no-data">No history data available</div>
+      <div class="chart-no-data">No history data</div>
     {/if}
   </div>
 
@@ -304,6 +369,7 @@ function closeDropdown() {
       {/each}
     </div>
   </div>
+  {/if}
 {/if}
 
 <style>
@@ -338,6 +404,19 @@ function closeDropdown() {
   }
   .market-suggestion:last-child { border-bottom: none; }
   .market-suggestion:hover { background: var(--divider); color: var(--accent); }
+
+  .wiki-btn {
+    display: block; width: 100%; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text-sub); font-size: 11px; font-family: 'Nunito', sans-serif;
+    font-weight: 600; padding: 6px 10px; cursor: pointer; text-align: center;
+    transition: border-color 0.1s, color 0.1s; margin-bottom: 2px;
+  }
+  .wiki-btn:hover { border-color: var(--accent-md); color: var(--accent); }
+
+  .market-untradeable {
+    text-align: center; font-size: 11px; color: var(--text-faint);
+    padding: 24px 0; font-style: italic;
+  }
 
   .market-status { text-align: center; font-size: 11px; color: var(--text-faint); padding: 16px 0; }
   .market-status.error { color: #7a3a3a; }
@@ -432,4 +511,21 @@ function closeDropdown() {
   .market-book .market-section-label { text-align: center; }
   .sell-label { color: var(--pos); }
   .buy-label { color: var(--neg); }
+
+  .market-chart-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 10px 0 5px;
+  }
+  .market-chart-header .market-section-label { margin: 0; }
+
+  .period-tabs { display: flex; gap: 2px; }
+
+  .period-tab {
+    background: none; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-faint); font-size: 9px; font-weight: 700; padding: 2px 6px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; letter-spacing: 0.5px;
+    transition: border-color 0.1s, color 0.1s;
+  }
+  .period-tab.active { border-color: var(--accent-md); color: var(--accent); }
+  .period-tab:hover:not(.active) { color: var(--text-sub); }
 </style>

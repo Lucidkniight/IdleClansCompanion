@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restartAndUpdate: () => ipcRenderer.invoke('restart-and-update'),
   setAlwaysOnTop: (value: boolean) => ipcRenderer.invoke('set-always-on-top', value),
   getWindowPreviews: (ids: number[]) => ipcRenderer.invoke('get-window-previews', ids),
+  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
 });
 

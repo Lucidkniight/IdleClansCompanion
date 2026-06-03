@@ -244,7 +244,7 @@ export async function loadGameConfig() {
       Foraging: 'Foraging', Farming: 'Farming', Cooking: 'Cooking',
       Smithing: 'Smithing', Carpentry: 'Carpentry', Crafting: 'Crafting',
       Brewing: 'Brewing', Agility: 'Agility', Enchanting: 'Enchanting',
-      Plundering: 'Plundering',
+      Plundering: 'Plundering', Exterminating: 'Exterminating', Invocation: 'Invocation',
     };
 
     const tasks: Task[] = [];

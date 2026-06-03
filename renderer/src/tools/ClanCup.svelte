@@ -241,7 +241,7 @@ onMount(loadLeaderboard);
       <span>{colHeader}</span>
     </div>
     {#each lbRows as row}
-      <div class="cup-lb-row cup-lb-link" on:click={() => navigate('Clan Leaderboard', row.clanName)}>
+      <div class="cup-lb-row cup-lb-link" on:click={() => navigate('Clan', row.clanName)}>
         <span class="cup-pos {rankCls(row.rank)}">{row.rank}</span>
         <span class="cup-name">{row.clanName}</span>
         <span class="cup-pts">{row.display}</span>

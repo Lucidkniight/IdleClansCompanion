@@ -190,6 +190,7 @@ onDestroy(() => {
 
     <!-- ── Settings ── -->
     {#if showSettings}
+    <div class="settings-content">
       <div class="section-header"><span>Settings</span></div>
 
       <div class="settings-group">
@@ -230,10 +231,11 @@ onDestroy(() => {
           {/each}
         </div>
       </div>
+    </div>
     {/if}
 
     <!-- ── Clients ── -->
-    <div class:tab-hidden={activeTab !== 'clients' || showSettings}>
+    <div class="clients-tab" class:tab-hidden={activeTab !== 'clients' || showSettings}>
       <div class="section-header">
         <span>Accounts</span>
         <button class="scan-btn" on:click={scan} title="Rescan">↺</button>
@@ -569,10 +571,10 @@ onDestroy(() => {
   :global(body) { background: var(--bg-base); color: var(--text); font-family: 'Nunito', sans-serif; }
   :global(#app) { width: 100%; height: 100%; display: flex; justify-content: flex-start; padding: 0; margin: 0; }
 
-  :global(::-webkit-scrollbar) { width: 4px; }
+  :global(::-webkit-scrollbar) { width: 8px; }
   :global(::-webkit-scrollbar-track) { background: transparent; }
-  :global(::-webkit-scrollbar-thumb) { background: var(--border); border-radius: 4px; }
-  :global(::-webkit-scrollbar-thumb:hover) { background: var(--bg-raised); }
+  :global(::-webkit-scrollbar-thumb) { background: var(--border); border-radius: 4px; border-left: 2px solid transparent; border-right: 1px solid transparent; background-clip: padding-box; }
+  :global(::-webkit-scrollbar-thumb:hover) { background: var(--bg-raised); background-clip: padding-box; }
 
   .sidebar {
     width: 100%; height: 100vh;
@@ -677,7 +679,7 @@ onDestroy(() => {
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
   .content {
-    flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px;
+    flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 0 10px 10px;
     display: flex; flex-direction: column;
     scrollbar-width: thin; scrollbar-color: var(--border) transparent;
   }
@@ -686,6 +688,7 @@ onDestroy(() => {
     flex: 1; min-height: 0;
     display: flex; flex-direction: column;
     overflow-y: auto; overflow-x: hidden;
+    scrollbar-gutter: stable;
     scrollbar-width: thin; scrollbar-color: var(--border) transparent;
   }
 
@@ -777,6 +780,9 @@ onDestroy(() => {
   .calc-item-name { font-size: 12px; font-weight: 700; color: var(--text-hi); }
   .calc-item-desc { font-size: 10px; color: var(--text-faint); }
   .calc-item-arrow { font-size: 18px; color: var(--text-faint); }
+
+  .clients-tab { padding-right: 10px; }
+  .settings-content { padding-right: 10px; }
 
   .tab-hidden { display: none; }
 

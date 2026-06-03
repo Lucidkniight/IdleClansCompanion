@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, desktopCapturer, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, screen, desktopCapturer, Menu, shell } from "electron";
 import electronReload from "electron-reload";
 import { join } from "path";
 import { autoUpdater } from 'electron-updater';
@@ -84,6 +84,10 @@ ipcMain.handle('restart-and-update', () => {
 
 ipcMain.handle('set-always-on-top', (_event, value: boolean) => {
   mainWindow.setAlwaysOnTop(value);
+});
+
+ipcMain.handle('open-external', (_event, url: string) => {
+  shell.openExternal(url);
 });
 
 

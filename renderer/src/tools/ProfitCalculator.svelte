@@ -51,7 +51,27 @@ let modJewelryType = 0;
 let modJewelryPieces = 0;
 let modCapeTier = 0;
 let modGatherers = false;
+let modGloves = false;
 let modSellSpeed: 'instant' | 'slow' = 'instant';
+
+const _PROFIT_MODS_KEY = 'icc-profit-mods';
+const _profitSkillMods: Record<string, { modTool: number; modGearPieces: number; modJewelryType: number; modJewelryPieces: number; modCapeTier: number; modGatherers: boolean; modGloves: boolean; modSellSpeed: 'instant' | 'slow' }> = (() => {
+  try { return JSON.parse(localStorage.getItem(_PROFIT_MODS_KEY) ?? '{}'); } catch { return {}; }
+})();
+const _defaultProfitMods = () => ({ modTool: 0, modGearPieces: 0, modJewelryType: 0, modJewelryPieces: 0, modCapeTier: 0, modGatherers: false, modGloves: false, modSellSpeed: 'instant' as const });
+
+$: if (selectedSkill) {
+  const _m = _profitSkillMods[selectedSkill] ?? _defaultProfitMods();
+  modTool = _m.modTool; modGearPieces = _m.modGearPieces;
+  modJewelryType = _m.modJewelryType; modJewelryPieces = _m.modJewelryPieces;
+  modCapeTier = _m.modCapeTier; modGatherers = _m.modGatherers;
+  modGloves = _m.modGloves; modSellSpeed = _m.modSellSpeed;
+}
+
+$: if (selectedSkill) {
+  _profitSkillMods[selectedSkill] = { modTool, modGearPieces, modJewelryType, modJewelryPieces, modCapeTier, modGatherers, modGloves, modSellSpeed };
+  try { localStorage.setItem(_PROFIT_MODS_KEY, JSON.stringify(_profitSkillMods)); } catch {}
+}
 
 onMount(async () => {
   if ($profitTasks.length === 0) {
@@ -75,13 +95,14 @@ function calcProfit(task: Task) {
     const p = cache[id];
     return p ? (modSellSpeed === 'instant' ? p.highestBuy : p.lowestSell) : 0;
   };
-  const outputValue = task.itemReward !== -1 ? getPrice(task.itemReward) * task.itemAmount * actionsPerHr : 0;
+  const glovesMult = (modGloves && selectedSkill !== 'Agility') ? 1.05 : 1;
+  const outputValue = task.itemReward !== -1 ? getPrice(task.itemReward) * task.itemAmount * actionsPerHr * glovesMult : 0;
   const inputCost = task.costs.reduce((s, c) => s + (cache[c.Item]?.lowestSell ?? 0) * c.Amount * actionsPerHr, 0);
   return { outputValue, inputCost, profitPerHr: outputValue - inputCost, actionsPerHr };
 }
 
 $: skillTasks = (() => {
-  const _ = [modTool, modGearPieces, modJewelryType, modJewelryPieces, modCapeTier, modGatherers, modSellSpeed];
+  const _ = [modTool, modGearPieces, modJewelryType, modJewelryPieces, modCapeTier, modGatherers, modGloves, modSellSpeed];
   return $profitTasks
     .filter(t => t.skill === selectedSkill && t.hasProfitValue)
     .sort((a, b) => calcProfit(b).profitPerHr - calcProfit(a).profitPerHr);
@@ -141,6 +162,15 @@ $: skillTasks = (() => {
           {#each CAPE_TIERS as c}<option value={c.value}>{c.label} ({c.value * 100}%)</option>{/each}
         </select>
       </div>
+
+      {#if selectedSkill !== 'Agility'}
+        <div class="mod-row">
+          <span class="mod-label">Skilling gloves</span>
+          <button class="toggle" class:active={modGloves} on:click={() => modGloves = !modGloves}>
+            {modGloves ? 'Yes' : 'No'}
+          </button>
+        </div>
+      {/if}
 
       {#if GATHERING_SKILLS.includes(selectedSkill)}
         <div class="mod-row">

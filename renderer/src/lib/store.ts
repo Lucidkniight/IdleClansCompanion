@@ -195,16 +195,23 @@ export async function focusClient(id: number | null) {
   await (window as any).electronAPI.focusWindow(id);
 }
 
+let _previewsRefreshing = false;
 export async function refreshPreviews() {
-  const current = get(clients);
-  if (current.length === 0) { previews.set({}); return; }
-  const ids = current.map(c => c.win.id);
-  const idSet = new Set(ids);
-  const result = await (window as any).electronAPI.getWindowPreviews(ids);
-  previews.update(prev => {
-    const cleaned = Object.fromEntries(Object.entries(prev).filter(([k]) => idSet.has(Number(k))));
-    return { ...cleaned, ...result };
-  });
+  if (_previewsRefreshing) return;
+  _previewsRefreshing = true;
+  try {
+    const current = get(clients);
+    if (current.length === 0) { previews.set({}); return; }
+    const ids = current.map(c => c.win.id);
+    const idSet = new Set(ids);
+    const result = await (window as any).electronAPI.getWindowPreviews(ids);
+    previews.update(prev => {
+      const cleaned = Object.fromEntries(Object.entries(prev).filter(([k]) => idSet.has(Number(k))));
+      return { ...cleaned, ...result };
+    });
+  } finally {
+    _previewsRefreshing = false;
+  }
 }
 
 export async function refreshPrices() {

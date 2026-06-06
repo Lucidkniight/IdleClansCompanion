@@ -57,6 +57,7 @@ async function main() {
 }
 
 ipcMain.handle('get-window-previews', async (_event, ids: number[]) => {
+  if (ids.length === 0) return {};
   try {
     const sources = await desktopCapturer.getSources({
       types: ['window'],
@@ -70,6 +71,8 @@ ipcMain.handle('get-window-previews', async (_event, ids: number[]) => {
         result[hwnd] = source.thumbnail.toDataURL();
       }
     }
+    // Release NativeImage references immediately so GC can reclaim them
+    (sources as any).length = 0;
     return result;
   } catch (e) {
     console.error(e);
@@ -135,16 +138,12 @@ ipcMain.handle("get-version", (_, key: "electron" | "node") => {
 ipcMain.handle('get-game-windows', () => {
   try {
     const all = windowManager.getWindows();
-
     const validTitleRegex = /^Idle Clans(?: \[[^\]]+\])?$/;
-
-    return all
+    const result = all
       .filter((w: any) => validTitleRegex.test(w.getTitle()))
-      .map((w: any) => ({
-        id: w.id,
-        title: w.getTitle()
-      }));
-
+      .map((w: any) => ({ id: w.id, title: w.getTitle() }));
+    (all as any).length = 0;
+    return result;
   } catch (e) {
     console.error(e);
     return [];
@@ -152,23 +151,24 @@ ipcMain.handle('get-game-windows', () => {
 });
 
 let activeGameId: number | null = null;
+let activeGameWin: any = null;
 
 function snapActiveWindow(bringToTop = false) {
-  if (activeGameId === null) return;
+  if (activeGameWin === null) return;
   try {
-    const all = windowManager.getWindows();
-    const win = all.find((w: any) => w.id === activeGameId);
-    if (!win) return;
     const [x, y] = mainWindow.getPosition();
     const [, h] = mainWindow.getSize();
     const display = screen.getDisplayNearestPoint({ x, y });
     const availableWidth = display.workArea.width - 300;
     const heightBasedWidth = Math.round(h * (16 / 9));
     const gameWidth = Math.min(availableWidth, heightBasedWidth);
-    win.restore();
-    win.setBounds({ x: x + 300, y, width: gameWidth, height: h });
-    if (bringToTop) win.bringToTop();
+    activeGameWin.restore();
+    activeGameWin.setBounds({ x: x + 300, y, width: gameWidth, height: h });
+    if (bringToTop) activeGameWin.bringToTop();
   } catch (e) {
+    // Window likely closed — clear stale reference
+    activeGameWin = null;
+    activeGameId = null;
     console.error(e);
   }
 }
@@ -190,13 +190,14 @@ ipcMain.handle('focus-window', (_event: any, id: number | null) => {
   try {
     const all = windowManager.getWindows();
 
-    // Move previous active window offscreen
     if (activeGameId !== null) {
       const prev = all.find((w: any) => w.id === activeGameId);
       if (prev) prev.setBounds({ x: -9999, y: 0, width: 1280, height: 720 });
     }
 
     activeGameId = id;
+    activeGameWin = id !== null ? (all.find((w: any) => w.id === id) ?? null) : null;
+    (all as any).length = 0;
 
     if (id !== null) {
       snapActiveWindow(true);

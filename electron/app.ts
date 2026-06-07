@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, screen, desktopCapturer, Menu, shell } from "electron";
+import { app, BrowserWindow, ipcMain, screen, Menu, shell } from "electron";
 import electronReload from "electron-reload";
 import { join } from "path";
 import { autoUpdater } from 'electron-updater';
 
 const { windowManager } = require('node-window-manager');
+const { Window: ScreenshotWindow } = require('node-screenshots');
 
 let mainWindow: BrowserWindow;
 
@@ -59,20 +60,20 @@ async function main() {
 ipcMain.handle('get-window-previews', async (_event, ids: number[]) => {
   if (ids.length === 0) return {};
   try {
-    const sources = await desktopCapturer.getSources({
-      types: ['window'],
-      thumbnailSize: { width: 280, height: 158 }, // 16:9
-    });
-
+    const idSet = new Set(ids);
     const result: Record<number, string> = {};
-    for (const source of sources) {
-      const hwnd = parseInt(source.id.split(':')[1], 10);
-      if (ids.includes(hwnd) && !source.thumbnail.isEmpty()) {
-        result[hwnd] = source.thumbnail.toDataURL();
+    const windows: any[] = ScreenshotWindow.all();
+    for (const win of windows) {
+      const id: number = win.id();
+      if (!idSet.has(id)) continue;
+      try {
+        const image = await win.captureImage();
+        const buf: Buffer = await image.toJpeg(true); // copyOutputData=true required in Electron
+        result[id] = `data:image/jpeg;base64,${buf.toString('base64')}`;
+      } catch {
+        // elevated process or window closed — skip cleanly
       }
     }
-    // Release NativeImage references immediately so GC can reclaim them
-    (sources as any).length = 0;
     return result;
   } catch (e) {
     console.error(e);

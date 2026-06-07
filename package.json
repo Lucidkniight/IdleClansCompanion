@@ -1,18 +1,17 @@
 {
   "name": "idleclanscompanion",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "",
   "main": "dist/electron/app.js",
-"scripts": {
-  "dev": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\" \"cd electron && tsc -w\"",
-  "package": "npm run build:renderer && npm run build:electron && electron-builder && node rename-build.js",
-  "build:electron": "cd electron && tsc && node -e \"require('fs').copyFileSync('icon.ico', '../dist/electron/icon.ico')\"",
-  "build:renderer": "cd renderer && npm run build",
-  "dev:renderer": "cd renderer && npm run dev",
-  "dev:electron": "cd electron && tsc && node -e \"require('fs').copyFileSync('icon.ico', '../dist/electron/icon.ico')\" && cd .. && electron .",
-  "format": "prettier --write ."
-
-},
+  "scripts": {
+    "dev": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\" \"cd electron && tsc -w\"",
+    "package": "npm run build:renderer && npm run build:electron && electron-builder && node rename-build.js",
+    "build:electron": "cd electron && tsc && node -e \"require('fs').copyFileSync('icon.ico', '../dist/electron/icon.ico')\"",
+    "build:renderer": "cd renderer && npm run build",
+    "dev:renderer": "cd renderer && npm run dev",
+    "dev:electron": "cd electron && tsc && node -e \"require('fs').copyFileSync('icon.ico', '../dist/electron/icon.ico')\" && cd .. && electron .",
+    "format": "prettier --write ."
+  },
   "build": {
     "appId": "your.app.id",
     "productName": "IdleClansCompanion",
@@ -30,6 +29,10 @@
       "dist/**/*",
       "package.json",
       "assets/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-screenshots/**",
+      "**/node_modules/node-screenshots-win32-x64-msvc/**"
     ],
     "win": {
       "target": "nsis",
@@ -67,6 +70,7 @@
     "electron-reload": "^2.0.0-alpha.1",
     "electron-updater": "^6.8.3",
     "fs-extra": "^11.3.5",
+    "node-screenshots": "^0.2.8",
     "node-window-manager": "^2.2.4"
   }
 }

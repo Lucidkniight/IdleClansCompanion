@@ -330,7 +330,7 @@ $: displayRecent = (() => {
           {@const pct = xpProgress(xp)}
           <div class="skill-row">
             {#if SKILL_ICON[key]}
-              <img class="skill-icon" src="/skilltaskicons/{SKILL_ICON[key]}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+              <img class="skill-icon" src="./skilltaskicons/{SKILL_ICON[key]}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
             {:else}
               <span class="skill-icon-placeholder"></span>
             {/if}

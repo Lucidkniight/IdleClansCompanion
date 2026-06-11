@@ -2,7 +2,7 @@
   export const toolMeta = {
     name: 'Completionist Calculator',
     desc: 'XP needed for completionist capes',
-    icon: '/itemicons/completionist_cape_tier_4.png',
+    icon: './itemicons/completionist_cape_tier_4.png',
   };
 </script>
 
@@ -349,7 +349,7 @@ $: stageEta = (() => {
           <div class="skill-list">
             {#each stage.needing as s}
               <button class="skill-row" on:click={() => navigate('XP Calculator', `${cap(s.skill)},${s.currentXp},${stage.level}`)}>
-                <img class="s-icon" src="/skilltaskicons/{SKILL_ICON[s.skill]}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+                <img class="s-icon" src="./skilltaskicons/{SKILL_ICON[s.skill]}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
                 <span class="s-name">{cap(s.skill)}</span>
                 <span class="s-lvl">Lv.{s.curLevel}</span>
                 <span class="s-xp">{formatGold(s.xpNeeded)}</span>

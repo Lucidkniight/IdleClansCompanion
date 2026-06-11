@@ -85,10 +85,10 @@ function dismissApiError() {
 
 function getModeLogo(mode: string | null): string {
   const m = mode?.toLowerCase() ?? '';
-  if (m === 'ironman' || m === 'ultimateironman') return '/logos/Ironman.png';
-  if (m === 'groupironmanprestige') return '/logos/GroupIronmanPrestige.png';
-  if (m === 'groupironman') return '/logos/GroupIronman.png';
-  return '/logos/Default.png';
+  if (m === 'ironman' || m === 'ultimateironman') return './logos/Ironman.png';
+  if (m === 'groupironmanprestige') return './logos/GroupIronmanPrestige.png';
+  if (m === 'groupironman') return './logos/GroupIronman.png';
+  return './logos/Default.png';
 }
 
 function statusLabel(status: number | null): string {
@@ -351,7 +351,7 @@ onDestroy(() => {
             >
               {#if !client.playerName}
                 <div class="card-top">
-                  <div class="avatar ghost"><img class="avatar-logo" src="/logos/Default.png" alt="" /></div>
+                  <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
                   <div class="card-info">
                     <span class="card-name muted">Not logged in</span>
                     <span class="card-clan">Idle Clans</span>
@@ -361,7 +361,7 @@ onDestroy(() => {
 
               {:else if client.loading}
                 <div class="card-top">
-                  <div class="avatar ghost"><img class="avatar-logo" src="/logos/Default.png" alt="" /></div>
+                  <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
                   <div class="card-info">
                     <span class="card-name">{client.playerName}</span>
                     <span class="card-clan loading-text">Loading...</span>
@@ -371,7 +371,7 @@ onDestroy(() => {
 
               {:else if client.error || !client.profile}
                 <div class="card-top">
-                  <div class="avatar ghost"><img class="avatar-logo" src="/logos/Default.png" alt="" /></div>
+                  <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
                   <div class="card-info">
                     <span class="card-name">{client.playerName}</span>
                     <span class="card-clan error-text">Could not load profile</span>
@@ -431,8 +431,8 @@ onDestroy(() => {
         <div class="calc-list">
           {#each filteredTools as tool}
             <button class="calc-item" on:click={() => openTool(tool)}>
-              {#if tool.toolMeta.icon.startsWith('/')}
-                <img class="calc-item-icon-img" src={tool.toolMeta.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+              {#if tool.toolMeta.icon.startsWith('./')}
+                <img class="calc-item-icon-img" src={tool.toolMeta.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
               {:else}
                 <span class="calc-item-icon">{tool.toolMeta.icon}</span>
               {/if}

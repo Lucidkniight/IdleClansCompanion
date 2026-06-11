@@ -2,7 +2,7 @@
   export const toolMeta = {
     name: 'Profit Calculator',
     desc: 'Profit per hour for any task',
-    icon: '/itemicons/gold.png',
+    icon: './itemicons/gold.png',
   };
 </script>
 
@@ -249,7 +249,7 @@ function hideTip() { _tipVisible = false; }
 
   <div class="field">
     <label class="label">Skill</label>
-    <CustomSelect bind:value={selectedSkill} options={$profitSkills.map(s => ({ label: s, value: s, icon: `/skilltaskicons/${s}.png` }))} on:change={() => selectedTask = null} />
+    <CustomSelect bind:value={selectedSkill} options={$profitSkills.map(s => ({ label: s, value: s, icon: `./skilltaskicons/${s}.png` }))} on:change={() => selectedTask = null} />
   </div>
 
   <div class="field">
@@ -414,11 +414,11 @@ function hideTip() { _tipVisible = false; }
         >
           <img
             class="task-icon"
-            src="/tasks/{task.name}.png"
+            src="./tasks/{task.name}.png"
             on:error={(e) => {
               const img = e.target as HTMLImageElement;
-              if (img.src.includes('/tasks/')) img.src = `/itemicons/${TASK_IMAGE_OVERRIDE[task.name] ?? task.name}.png`;
-              else img.src = '/image_placeholder.png';
+              if (img.src.includes('/tasks/')) img.src = `./itemicons/${TASK_IMAGE_OVERRIDE[task.name] ?? task.name}.png`;
+              else img.src = './image_placeholder.png';
             }}
             alt=""
           />

@@ -2,7 +2,7 @@
   export const toolMeta = {
     name: 'Combat Calculator',
     desc: 'DPS, hit chance, and time-to-kill',
-    icon: '/skilltaskicons/Combat.png',
+    icon: './skilltaskicons/Combat.png',
   };
 </script>
 
@@ -730,7 +730,7 @@ function calcAugmented(level: number, bonus: number): number {
           >
             <span class="slot-label">{slot.label}</span>
             {#if slotRawNames[slot.key]}
-              <img class="slot-img" src="/itemicons/{slotRawNames[slot.key]}.png" alt={name} on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+              <img class="slot-img" src="./itemicons/{slotRawNames[slot.key]}.png" alt={name} on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
             {:else if name}
               <span class="slot-name">{name}</span>
             {:else}
@@ -770,7 +770,7 @@ function calcAugmented(level: number, bonus: number): number {
       {#if selectedMonster}
         {@const weakness = getWeakness(selectedMonster)}
         <div class="enemy-card">
-          <img class="enemy-img" src="/combat/{selectedMonster.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+          <img class="enemy-img" src="./combat/{selectedMonster.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
           <div class="enemy-card-info">
             <div class="enemy-selected">
               <span class="enemy-name">{formatMonsterName(selectedMonster.name)}</span>
@@ -947,12 +947,12 @@ function calcAugmented(level: number, bonus: number): number {
         {@const weakness = getWeakness(m)}
         {@const styleIcon = getMonsterStyle(m) === 'Arch' ? 'Archery' : getMonsterStyle(m) === 'Mag' ? 'Magic' : 'Rigour'}
         <button class="monster-item" on:click={() => selectMonster(m)}>
-          <img class="monster-icon" src="/combat/{m.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+          <img class="monster-icon" src="./combat/{m.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
           <span class="monster-name">{formatMonsterName(m.name)}</span>
           <div class="monster-meta">
-            <img class="monster-stat-icon" src="/skilltaskicons/Health.png" alt="HP" />
+            <img class="monster-stat-icon" src="./skilltaskicons/Health.png" alt="HP" />
             <span class="monster-hp">{m.health}</span>
-            <img class="monster-stat-icon" src="/skilltaskicons/{styleIcon}.png" alt={styleIcon} />
+            <img class="monster-stat-icon" src="./skilltaskicons/{styleIcon}.png" alt={styleIcon} />
             <span class="monster-weak-tag {weakness ? 'weakness-' + weakness.toLowerCase() : 'weakness-none'}">{weakness ?? 'None'}</span>
           </div>
         </button>
@@ -985,7 +985,7 @@ function calcAugmented(level: number, bonus: number): number {
       <button class="picker-item picker-item-clear" on:click={clearSlot}>Clear slot</button>
       {#each pickerItems as item (item.id)}
         <button class="picker-item" on:click={() => selectItem(item.id)}>
-          <img class="picker-item-icon" src="/itemicons/{item.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+          <img class="picker-item-icon" src="./itemicons/{item.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
           {formatItemName(item.name)}
         </button>
       {/each}

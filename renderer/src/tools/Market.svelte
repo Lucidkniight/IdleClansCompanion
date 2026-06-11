@@ -2,7 +2,7 @@
   export const toolMeta = {
     name: 'Market',
     desc: 'Live prices and order books',
-    icon: '/skilltaskicons/AuctionHouse.png',
+    icon: './skilltaskicons/AuctionHouse.png',
   };
 </script>
 
@@ -250,7 +250,7 @@ $: if ($_navParam) {
     <div class="market-dropdown">
       {#each marketSuggestions as item}
         <button class="market-suggestion" on:click={() => selectMarketItem(item)}>
-          <img class="suggestion-icon" src="/itemicons/{item.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+          <img class="suggestion-icon" src="./itemicons/{item.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
           {formatItemName(item.name)}
         </button>
       {/each}
@@ -265,7 +265,7 @@ $: if ($_navParam) {
 {:else if marketData}
   <div class="item-info-row">
     <div class="item-header">
-      <img class="item-header-img" src="/itemicons/{selectedItemName}.png" alt={formatItemName(selectedItemName)} on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+      <img class="item-header-img" src="./itemicons/{selectedItemName}.png" alt={formatItemName(selectedItemName)} on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
       <button class="wiki-btn" on:click={openWiki}>Wiki</button>
     </div>
     {#if isUntradeable}

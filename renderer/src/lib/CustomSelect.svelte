@@ -27,7 +27,7 @@
   <button class="cs-btn" class:autofill on:click|stopPropagation={() => open = !open}>
     <span class="cs-btn-label">
       {#if selected?.icon}
-        <img class="cs-icon" src={selected.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+        <img class="cs-icon" src={selected.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
       {/if}
       {display}
     </span>
@@ -42,7 +42,7 @@
           on:click|stopPropagation={() => pick(opt)}
         >
           {#if opt.icon}
-            <img class="cs-icon" src={opt.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+            <img class="cs-icon" src={opt.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
           {/if}
           {opt.label}
         </button>

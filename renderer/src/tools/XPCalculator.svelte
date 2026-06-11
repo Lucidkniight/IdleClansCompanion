@@ -271,7 +271,7 @@ function fillFromClient(client: ClientCard) {
 
   <div class="field">
     <label class="label">Skill</label>
-    <CustomSelect autofill={autoFilledFields.has('skill')} bind:value={selectedSkill} options={$profitSkills.map(s => ({ label: s, value: s, icon: `/skilltaskicons/${s}.png` }))} on:change={() => selectedTask = null} />
+    <CustomSelect autofill={autoFilledFields.has('skill')} bind:value={selectedSkill} options={$profitSkills.map(s => ({ label: s, value: s, icon: `./skilltaskicons/${s}.png` }))} on:change={() => selectedTask = null} />
   </div>
 
   <div class="field">
@@ -421,11 +421,11 @@ function fillFromClient(client: ClientCard) {
         >
           <img
             class="task-icon"
-            src="/tasks/{task.name}.png"
+            src="./tasks/{task.name}.png"
             on:error={(e) => {
               const img = e.target as HTMLImageElement;
-              if (img.src.includes('/tasks/')) img.src = `/itemicons/${TASK_IMAGE_OVERRIDE[task.name] ?? task.name}.png`;
-              else img.src = '/image_placeholder.png';
+              if (img.src.includes('/tasks/')) img.src = `./itemicons/${TASK_IMAGE_OVERRIDE[task.name] ?? task.name}.png`;
+              else img.src = './image_placeholder.png';
             }}
             alt=""
           />

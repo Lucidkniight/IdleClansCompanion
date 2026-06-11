@@ -10,35 +10,38 @@
 import { onMount } from 'svelte';
 import {
   profitTasks, profitSkills, clients, toolNavigation,
-  loadGameConfig, GATHERING_SKILLS, XP_TABLE, xpToLevel, formatGold, formatTime,
+  loadGameConfig, GATHERING_SKILLS, XP_TABLE, xpToLevel, formatGold, formatTime, navigate, formatItemName,
   type Task, type ClientCard,
 } from '../lib/store';
+import CustomSelect from '../lib/CustomSelect.svelte';
 
 const TOOL_TIERS = [
-  { label: 'None', value: 0 },
-  { label: 'Normal', value: 0.04 },
-  { label: 'Refined', value: 0.06 },
-  { label: 'Great', value: 0.08 },
-  { label: 'Elite', value: 0.10 },
-  { label: 'Superior', value: 0.12 },
-  { label: 'Outstanding', value: 0.15 },
-  { label: 'Godlike', value: 0.20 },
-  { label: 'Otherworldly', value: 0.25 },
+  { label: 'None',               value: 0 },
+  { label: 'Normal (4%)',        value: 0.04 },
+  { label: 'Refined (6%)',       value: 0.06 },
+  { label: 'Great (8%)',         value: 0.08 },
+  { label: 'Elite (10%)',        value: 0.10 },
+  { label: 'Superior (12%)',     value: 0.12 },
+  { label: 'Outstanding (15%)',  value: 0.15 },
+  { label: 'Godlike (20%)',      value: 0.20 },
+  { label: 'Otherworldly (25%)', value: 0.25 },
 ];
 
 const CAPE_TIERS = [
-  { label: 'None', value: 0 },
-  { label: 'Tier 1', value: 0.05 },
-  { label: 'Tier 2', value: 0.10 },
-  { label: 'Tier 3', value: 0.15 },
-  { label: 'Tier 4', value: 0.20 },
+  { label: 'None',    value: 0 },
+  { label: 'T1 (5%)', value: 0.05 },
+  { label: 'T2 (10%)',value: 0.10 },
+  { label: 'T3 (15%)',value: 0.15 },
+  { label: 'T4 (20%)',value: 0.20 },
 ];
 
+const GEAR_PIECES_OPTIONS = [0,1,2,3].map(n => ({ label: `${n} piece${n !== 1 ? 's' : ''} (${n * 2}%)`, value: n }));
+
 const JEWELRY_TYPES = [
-  { label: '—', value: 0 },
-  { label: 'Cmn', value: 0.015 },
-  { label: 'Rare', value: 0.035 },
-  { label: 'Exc', value: 0.05 },
+  { short: '—', label: 'None',        value: 0 },
+  { short: 'C',  label: 'Common',     value: 0.015 },
+  { short: 'R',  label: 'Rare',       value: 0.035 },
+  { short: 'E',  label: 'Exceptional',value: 0.05 },
 ];
 
 const HOUSING_TIERS = [
@@ -60,6 +63,32 @@ const PLAYER_HOUSING_TIERS = [
   { label: 'House (25%)', value: 0.25 },
 ];
 
+const CONSUMABLE_SKILLS = new Set(['Brewing', 'Farming', 'Foraging', 'Fishing', 'Mining', 'Woodcutting', 'Plundering', 'Cooking', 'Carpentry', 'Smithing', 'Agility']);
+const CONSUMABLE_NAMES: Record<string, string> = {
+  Brewing: 'vial', Farming: 'compost', Foraging: 'flax essence',
+  Fishing: 'fishing bait', Mining: 'gem dust', Woodcutting: 'resin',
+  Plundering: 'smoke bomb', Cooking: 'seasoning', Carpentry: 'wax',
+  Smithing: 'clay core', Agility: 'prehistoric elixir',
+};
+
+const FISHERMAN_TIERS = [
+  { label: 'None', value: 0 },
+  { label: 'T1 — 20%', value: 0.20 },
+  { label: 'T2 — 40%', value: 0.40 },
+  { label: 'T3 — 60%', value: 0.60 },
+  { label: 'T4 — 80%', value: 0.80 },
+  { label: 'T5 — 100%', value: 1.00 },
+];
+
+const LUMBERJACK_TIERS = [
+  { label: 'None', value: 0 },
+  { label: 'T1 — 20%', value: 0.20 },
+  { label: 'T2 — 40%', value: 0.40 },
+  { label: 'T3 — 60%', value: 0.60 },
+  { label: 'T4 — 80%', value: 0.80 },
+  { label: 'T5 — 100%', value: 1.00 },
+];
+
 let loading = false;
 let selectedSkill = '';
 let selectedTask: Task | null = null;
@@ -72,20 +101,30 @@ let modJewelry2 = 0; // Bracelet
 let modJewelry3 = 0; // Earrings
 let modCapeTier = 0;
 let modGatherers = false;
+let modFishermanTier = 0;
+let modBetterFisherman = false;
+let modLumberjackTier = 0;
+let modBetterLumberjack = false;
+let modConsumable: 0 | 0.02 | 0.04 = 0;
 let modHousing = 0;
 let modPlayerHousing = 0;
 let modDailyBoost: 'off' | 'avg' | 'full' = 'avg';
 
 const _XP_MODS_KEY = 'icc-xp-mods';
-const _xpSkillMods: Record<string, { modTool: number; modGearPieces: number; modJewelry: number[]; modCapeTier: number; modGatherers: boolean; modHousing: number; modPlayerHousing: number; modDailyBoost: 'off' | 'avg' | 'full'; xpCurrentXp: number; xpGoalLevel: number }> = (() => {
+const _xpSkillMods: Record<string, { modTool: number; modGearPieces: number; modJewelry: number[]; modCapeTier: number; modGatherers: boolean; modHousing: number; modPlayerHousing: number; modDailyBoost: 'off' | 'avg' | 'full'; xpCurrentXp: number; xpGoalLevel: number; modFishermanTier?: number; modBetterFisherman?: boolean; modLumberjackTier?: number; modBetterLumberjack?: boolean; modConsumable?: number }> = (() => {
   try { return JSON.parse(localStorage.getItem(_XP_MODS_KEY) ?? '{}'); } catch { return {}; }
 })();
-const _defaultXpMods = () => ({ modTool: 0, modGearPieces: 0, modJewelry: [0, 0, 0, 0], modCapeTier: 0, modGatherers: false, modHousing: 0, modPlayerHousing: 0, modDailyBoost: 'avg' as const, xpCurrentXp: 0, xpGoalLevel: 120 });
+const _defaultXpMods = () => ({ modTool: 0, modGearPieces: 0, modJewelry: [0, 0, 0, 0], modCapeTier: 0, modGatherers: false, modHousing: 0, modPlayerHousing: 0, modDailyBoost: 'avg' as const, xpCurrentXp: 88474739, xpGoalLevel: 120, modFishermanTier: 0, modBetterFisherman: false, modLumberjackTier: 0, modBetterLumberjack: false, modConsumable: 0 });
 
 $: if (selectedSkill) {
   const _m = _xpSkillMods[selectedSkill] ?? _defaultXpMods();
   modTool = _m.modTool; modGearPieces = _m.modGearPieces;
   modCapeTier = _m.modCapeTier; modGatherers = _m.modGatherers;
+  modFishermanTier = _m.modFishermanTier ?? 0;
+  modBetterFisherman = _m.modBetterFisherman ?? false;
+  modLumberjackTier = _m.modLumberjackTier ?? 0;
+  modBetterLumberjack = _m.modBetterLumberjack ?? false;
+  modConsumable = (_m.modConsumable as 0 | 0.02 | 0.04) ?? 0;
   const _j: number[] = (_m as any).modJewelry ?? (() => {
     const t = (_m as any).modJewelryType ?? 0;
     const p = Math.min((_m as any).modJewelryPieces ?? 0, 4);
@@ -104,11 +143,11 @@ $: if (selectedSkill) {
 }
 
 $: if (selectedSkill) {
-  _xpSkillMods[selectedSkill] = { modTool, modGearPieces, modJewelry: [modJewelry0, modJewelry1, modJewelry2, modJewelry3], modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpCurrentXp, xpGoalLevel };
+  _xpSkillMods[selectedSkill] = { modTool, modGearPieces, modJewelry: [modJewelry0, modJewelry1, modJewelry2, modJewelry3], modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpCurrentXp, xpGoalLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable };
   try { localStorage.setItem(_XP_MODS_KEY, JSON.stringify(_xpSkillMods)); } catch {}
 }
 
-let xpCurrentXp = 0;
+let xpCurrentXp = 88474739;
 let xpGoalLevel = 120;
 let xpFieldAuto = false;
 let goalFieldAuto = false;
@@ -159,8 +198,11 @@ function calcTaskTime(task: Task): number {
 
 function calcXp(task: Task) {
   const actionsPerHr = 3600 / calcTaskTime(task);
-  const dailyMult = modDailyBoost === 'full' ? 1.30 : modDailyBoost === 'avg' ? (1 + 0.30 * 8 / 24) : 1;
-  const xpPerAction = task.exp * (1 + modHousing) * (1 + modPlayerHousing) * dailyMult;
+  const dailyBonus = modDailyBoost === 'full' ? 0.30 : modDailyBoost === 'avg' ? (0.30 * 8 / 24) : 0;
+  const fishermanXpMult = (selectedSkill === 'Fishing' && modBetterFisherman && modFishermanTier > 0) ? 1 + modFishermanTier * 0.25 : 1;
+  const lumberjackXpMult = (selectedSkill === 'Woodcutting' && modBetterLumberjack && modLumberjackTier > 0) ? 1 + modLumberjackTier * 0.25 : 1;
+  const consumableMult = 1 + modConsumable;
+  const xpPerAction = task.exp * (1 + modHousing + modPlayerHousing) * (1 + dailyBonus) * fishermanXpMult * lumberjackXpMult * consumableMult;
   const xpPerHr = xpPerAction * actionsPerHr;
   const goalXp = xpGoalLevel >= 1 && xpGoalLevel <= 120 ? XP_TABLE[xpGoalLevel - 1] : null;
   const xpNeeded = goalXp !== null ? Math.max(goalXp - xpCurrentXp, 0) : null;
@@ -170,14 +212,40 @@ function calcXp(task: Task) {
 }
 
 $: xpTasks = (() => {
-  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp];
+  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp, xpCurrentLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable];
   return $profitTasks
     .filter(t => t.skill === selectedSkill)
-    .sort((a, b) => calcXp(b).xpPerHr - calcXp(a).xpPerHr);
+    .sort((a, b) => {
+      const aLocked = a.level > xpCurrentLevel ? 1 : 0;
+      const bLocked = b.level > xpCurrentLevel ? 1 : 0;
+      if (aLocked !== bLocked) return aLocked - bLocked;
+      return calcXp(b).xpPerHr - calcXp(a).xpPerHr;
+    });
 })();
 
 $: xpCurrentLevel = xpToLevel(xpCurrentXp);
 $: clientsWithProfile = $clients.filter(c => c.playerName && c.profile?.skillExperiences);
+
+const TASK_IMAGE_OVERRIDE: Record<string, string> = {
+  // Fishing → raw fish
+  piranha: 'raw_piranha', perch: 'raw_perch', mackerel: 'raw_mackerel',
+  cod: 'raw_cod', trout: 'raw_trout', salmon: 'raw_salmon',
+  carp: 'raw_carp', zander: 'raw_zander', pufferfish: 'raw_pufferfish',
+  anglerfish: 'raw_anglerfish', tuna: 'raw_tuna', sea_serpent: 'raw_sea_serpent',
+  // Woodcutting → logs
+  spruce: 'spruce_log', pine: 'pine_log', oak: 'oak_log', maple: 'maple_log',
+  teak: 'teak_log', chestnut: 'chestnut_log', mahogany: 'mahogany_log',
+  yew: 'yew_log', redwood: 'redwood_log', magical: 'magical_log', ignis: 'ignis_log',
+  // Crafting weapons → gemstones
+  refined_weapon: 'refined_gemstone', great_weapon: 'great_gemstone',
+  elite_weapon: 'elite_gemstone', superior_weapon: 'superior_gemstone',
+  outstanding_weapon: 'outstanding_gemstone', godlike_weapon: 'godlike_gemstone',
+  otherworldly_item: 'otherworldly_ore',
+  // Enchanting → woodcutting scrolls
+  common_enchantment: 'common_scroll_of_woodcutting',
+  rare_enchantment: 'rare_scroll_of_woodcutting',
+  exceptional_enchantment: 'exceptional_scroll_of_woodcutting',
+};
 
 let _tipText = '';
 let _tipX = 0;
@@ -203,16 +271,11 @@ function fillFromClient(client: ClientCard) {
 
   <div class="field">
     <label class="label">Skill</label>
-    <div class="skill-grid">
-      {#each $profitSkills as skill}
-        <button
-          class="skill-btn"
-          class:active={selectedSkill === skill}
-          class:autofill={autoFilledFields.has('skill') && selectedSkill === skill}
-          on:click={() => { selectedSkill = skill; selectedTask = null; }}
-        >{skill}</button>
-      {/each}
-    </div>
+    <CustomSelect autofill={autoFilledFields.has('skill')} bind:value={selectedSkill} options={$profitSkills.map(s => ({ label: s, value: s, icon: `/skilltaskicons/${s}.png` }))} on:change={() => selectedTask = null} />
+  </div>
+
+  <div class="field">
+    <label class="label">XP Goal</label>
     {#if clientsWithProfile.length}
       <div class="clients-row">
         {#each clientsWithProfile as client}
@@ -222,25 +285,17 @@ function fillFromClient(client: ClientCard) {
         {/each}
       </div>
     {/if}
-  </div>
-
-  <div class="field">
-    <label class="label">Goal</label>
-    <div class="goal-row">
-      <div class="goal-field">
-        <span class="mod-label">Current XP</span>
-        <input class="select" class:autofill={autoFilledFields.has('xp')} class:field-auto={xpFieldAuto} type="number" min="0" bind:value={xpCurrentXp} placeholder="0" on:input={() => xpFieldAuto = false} />
-      </div>
-      <div class="goal-field">
-        <span class="mod-label">Goal level</span>
-        <input class="select" class:autofill={autoFilledFields.has('goal')} class:field-auto={goalFieldAuto} type="number" min="1" max="120" bind:value={xpGoalLevel} placeholder="120" on:input={() => goalFieldAuto = false} />
-      </div>
+    <div class="mod-row">
+      <span class="mod-label">Current XP</span>
+      <input class="select" class:autofill={autoFilledFields.has('xp')} class:field-auto={xpFieldAuto} type="number" min="0" bind:value={xpCurrentXp} placeholder="0" on:input={() => xpFieldAuto = false} />
+    </div>
+    <div class="mod-row">
+      <span class="mod-label">Goal Level</span>
+      <input class="select" class:autofill={autoFilledFields.has('goal')} class:field-auto={goalFieldAuto} type="number" min="1" max="120" bind:value={xpGoalLevel} placeholder="120" on:input={() => goalFieldAuto = false} />
     </div>
     {#if xpCurrentXp > 0}
-      <span class="current-level">
-        Current level: {xpCurrentLevel}
-        · Goal XP: {formatGold(XP_TABLE[Math.min(xpGoalLevel, 120) - 1])}
-      </span>
+      {@const xpNeeded = XP_TABLE[Math.min(xpGoalLevel, 120) - 1] - xpCurrentXp}
+      <span class="goal-xp-label">Lv.{xpCurrentLevel} → Lv.{Math.min(xpGoalLevel, 120)} · {xpNeeded <= 0 ? 'Goal reached' : `${formatGold(xpNeeded)} XP needed`}</span>
     {/if}
   </div>
 
@@ -250,73 +305,105 @@ function fillFromClient(client: ClientCard) {
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Your equipped tool tier. Higher tiers reduce task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Tool</span>
-        <select class="select" bind:value={modTool}>
-          {#each TOOL_TIERS as t}<option value={t.value}>{t.label} ({t.value * 100}%)</option>{/each}
-        </select>
+        <CustomSelect bind:value={modTool} options={TOOL_TIERS} />
       </div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Skill-specific gear pieces worn. Each piece reduces task time by 2%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gear pieces</span>
-        <select class="select" bind:value={modGearPieces}>
-          {#each [0,1,2,3] as n}<option value={n}>{n} piece{n !== 1 ? 's' : ''} ({n * 2}%)</option>{/each}
-        </select>
+        <CustomSelect bind:value={modGearPieces} options={GEAR_PIECES_OPTIONS} />
       </div>
 
       <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Jewelry slots. Each piece reduces task time — Cmn 1.5%, Rare 3.5%, Exc 5%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Jewelry</span>
+        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Jewelry slots. Each piece reduces task time — Common 1.5%, Rare 3.5%, Exceptional 5%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Jewelry</span>
         <div class="jewelry-slots">
-          <select class="select jewelry-select" bind:value={modJewelry0}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
-          <select class="select jewelry-select" bind:value={modJewelry1}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
-          <select class="select jewelry-select" bind:value={modJewelry2}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
-          <select class="select jewelry-select" bind:value={modJewelry3}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
+          <CustomSelect bind:value={modJewelry0} options={JEWELRY_TYPES} compact />
+          <CustomSelect bind:value={modJewelry1} options={JEWELRY_TYPES} compact />
+          <CustomSelect bind:value={modJewelry2} options={JEWELRY_TYPES} compact />
+          <CustomSelect bind:value={modJewelry3} options={JEWELRY_TYPES} compact />
         </div>
       </div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Mastery cape tier. Reduces task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Mastery cape</span>
-        <select class="select" bind:value={modCapeTier}>
-          {#each CAPE_TIERS as c}<option value={c.value}>{c.label} ({c.value * 100}%)</option>{/each}
-        </select>
+        <CustomSelect bind:value={modCapeTier} options={CAPE_TIERS} />
       </div>
+
+      {#if GATHERING_SKILLS.includes(selectedSkill)}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Clan upgrade that reduces task time by 5% for gathering skills.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gatherers</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGatherers} on:click={() => modGatherers = false}>No</button>
+            <button class="boost-btn" class:active={modGatherers} on:click={() => modGatherers = true}>Yes</button>
+          </div>
+        </div>
+      {/if}
+
+      <div class="mod-gap"></div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Your clan's housing upgrade level. Increases XP earned per action.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Clan housing</span>
-        <select class="select" bind:value={modHousing}>
-          {#each HOUSING_TIERS as h}<option value={h.value}>{h.label}</option>{/each}
-        </select>
+        <CustomSelect bind:value={modHousing} options={HOUSING_TIERS} />
       </div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Your personal house tier. Increases XP earned per action.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Player house</span>
-        <select class="select" bind:value={modPlayerHousing}>
-          {#each PLAYER_HOUSING_TIERS as h}<option value={h.value}>{h.label}</option>{/each}
-        </select>
+        <CustomSelect bind:value={modPlayerHousing} options={PLAYER_HOUSING_TIERS} />
       </div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'A 30% XP boost active for 8 hrs/day. Avg applies the effective 24h average (+10%). Full shows the rate while the boost is active.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Daily XP boost</span>
         <div class="boost-btns">
           <button class="boost-btn" class:active={modDailyBoost === 'off'} on:click={() => modDailyBoost = 'off'}>Off</button>
-          <button class="boost-btn" class:active={modDailyBoost === 'avg'} on:click={() => modDailyBoost = 'avg'}>Avg +10%</button>
-          <button class="boost-btn" class:active={modDailyBoost === 'full'} on:click={() => modDailyBoost = 'full'}>Full +30%</button>
+          <button class="boost-btn" class:active={modDailyBoost === 'avg'} on:click={() => modDailyBoost = 'avg'}>Avg</button>
+          <button class="boost-btn" class:active={modDailyBoost === 'full'} on:click={() => modDailyBoost = 'full'}>Full</button>
         </div>
       </div>
 
-      {#if GATHERING_SKILLS.includes(selectedSkill)}
+      {#if CONSUMABLE_SKILLS.has(selectedSkill)}
         <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Clan upgrade that reduces task time by 5% for gathering skills.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gatherers upgrade</span>
-          <button class="toggle" class:active={modGatherers} on:click={() => modGatherers = !modGatherers}>
-            {modGatherers ? 'Yes' : 'No'}
-          </button>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, `Skilling consumable dropped by enemies. Common ${CONSUMABLE_NAMES[selectedSkill]} +2% XP. Rare ${CONSUMABLE_NAMES[selectedSkill]} +4% XP.`)} on:mousemove={moveTip} on:mouseleave={hideTip}>Consumable</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={modConsumable === 0} on:click={() => modConsumable = 0}>None</button>
+            <button class="boost-btn" class:active={modConsumable === 0.02} on:click={() => modConsumable = 0.02}>+2%</button>
+            <button class="boost-btn" class:active={modConsumable === 0.04} on:click={() => modConsumable = 0.04}>+4%</button>
+          </div>
         </div>
+      {/if}
+
+      {#if selectedSkill === 'Fishing' || selectedSkill === 'Woodcutting'}
+        <div class="mod-gap"></div>
+      {/if}
+
+      {#if selectedSkill === 'Fishing'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to catch double fish. No XP benefit without Better Fisherman.')} on:mousemove={moveTip} on:mouseleave={hideTip}>The Fisherman</span>
+          <CustomSelect bind:value={modFishermanTier} options={FISHERMAN_TIERS} />
+        </div>
+        {#if modFishermanTier > 0}
+          <div class="mod-row">
+            <span class="mod-label tip-label" on:mouseenter={e => showTip(e, `Market upgrade. Adds 25% XP when The Fisherman procs. Effective bonus at current tier: +${Math.round(modFishermanTier * 25)}% XP.`)} on:mousemove={moveTip} on:mouseleave={hideTip}>Better Fisherman</span>
+            <div class="boost-btns">
+              <button class="boost-btn" class:active={!modBetterFisherman} on:click={() => modBetterFisherman = false}>No</button>
+              <button class="boost-btn" class:active={modBetterFisherman} on:click={() => modBetterFisherman = true}>Yes</button>
+            </div>
+          </div>
+        {/if}
+      {/if}
+
+      {#if selectedSkill === 'Woodcutting'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to chop double logs. No XP benefit without Better Lumberjack.')} on:mousemove={moveTip} on:mouseleave={hideTip}>The Lumberjack</span>
+          <CustomSelect bind:value={modLumberjackTier} options={LUMBERJACK_TIERS} />
+        </div>
+        {#if modLumberjackTier > 0}
+          <div class="mod-row">
+            <span class="mod-label tip-label" on:mouseenter={e => showTip(e, `Market upgrade. Adds 25% XP when The Lumberjack procs. Effective bonus at current tier: +${Math.round(modLumberjackTier * 25)}% XP.`)} on:mousemove={moveTip} on:mouseleave={hideTip}>Better Lumberjack</span>
+            <div class="boost-btns">
+              <button class="boost-btn" class:active={!modBetterLumberjack} on:click={() => modBetterLumberjack = false}>No</button>
+              <button class="boost-btn" class:active={modBetterLumberjack} on:click={() => modBetterLumberjack = true}>Yes</button>
+            </div>
+          </div>
+        {/if}
       {/if}
 
     </div>
@@ -332,22 +419,45 @@ function fillFromClient(client: ClientCard) {
           class:active={selectedTask?.name === task.name}
           on:click={() => selectedTask = selectedTask?.name === task.name ? null : task}
         >
+          <img
+            class="task-icon"
+            src="/tasks/{task.name}.png"
+            on:error={(e) => {
+              const img = e.target as HTMLImageElement;
+              if (img.src.includes('/tasks/')) img.src = `/itemicons/${TASK_IMAGE_OVERRIDE[task.name] ?? task.name}.png`;
+              else img.src = '/image_placeholder.png';
+            }}
+            alt=""
+          />
           <div class="task-left">
-            <span class="task-name">{task.name.replace(/_/g, ' ')}</span>
+            <div class="task-name-row">
+              <span class="task-name">{formatItemName(task.name)}</span>
+              {#if x.xpPerHr > 1_000_000}
+                <span class="task-flag" on:mouseenter={e => showTip(e, 'Exceeds 1M XP/hr — market supply likely cannot sustain this method at scale.')} on:mousemove={moveTip} on:mouseleave={hideTip}>⚠️</span>
+              {/if}
+            </div>
             <span class="task-level" class:req-fail={task.level > xpCurrentLevel}>Lv. {task.level}</span>
           </div>
-          <span class="task-phr pos">{formatGold(x.xpPerHr)} xp/hr</span>
+          <div class="task-right">
+            <span class="task-phr pos">{formatGold(x.xpPerHr)} xp/hr</span>
+            {#if x.timeToGoal !== null}
+              <span class="task-ttg">{formatTime(x.timeToGoal)}</span>
+            {/if}
+          </div>
         </button>
 
         {#if selectedTask?.name === task.name}
           <div class="detail">
-            <div class="detail-row"><span>Task time</span><span>{calcTaskTime(task).toFixed(2)}s</span></div>
             <div class="detail-row"><span>XP per action</span><span>{x.xpPerAction.toFixed(1)}</span></div>
             <div class="detail-row"><span>Actions/hr</span><span>{Math.round(3600 / calcTaskTime(task)).toLocaleString()}</span></div>
-            <div class="detail-row total"><span>XP/hr</span><span class="pos">{formatGold(x.xpPerHr)}</span></div>
-            {#if x.timeToGoal !== null}
-              <div class="detail-row total"><span>Time to goal</span><span>{formatTime(x.timeToGoal)}</span></div>
-              <div class="detail-row"><span>Actions needed</span><span>{x.actionsToGoal?.toLocaleString()}</span></div>
+            <div class="detail-row"><span>Task time</span><span>{calcTaskTime(task).toFixed(2)}s</span></div>
+            {#if x.actionsToGoal !== null}
+              <div class="detail-row"><span>Actions to goal</span><span>{x.actionsToGoal?.toLocaleString()}</span></div>
+            {/if}
+            {#if task.itemReward !== -1}
+              <button class="market-btn" on:click={() => navigate('Market', String(task.itemReward))}>
+                Go to market
+              </button>
             {/if}
           </div>
         {/if}
@@ -366,56 +476,51 @@ function fillFromClient(client: ClientCard) {
 <style>
   .status { text-align: center; font-size: 11px; color: var(--text-faint); padding: 16px 0; }
 
-  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-  .label { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-faint); }
-
-  .skill-grid { display: flex; flex-wrap: wrap; gap: 4px; }
-  .skill-btn {
-    background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
-    font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 5px;
-    cursor: pointer; transition: all 0.15s; width: auto;
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+  .label {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 8px; white-space: nowrap;
   }
-  .skill-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
-  .skill-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
+  .label::before, .label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
-  .clients-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+  .goal-xp-label { font-size: 10px; color: var(--text-faint); }
+
+  .clients-row { display: flex; flex-wrap: wrap; gap: 3px; }
   .client-chip {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
-    color: var(--text-sub); font-size: 10px; font-weight: 600; padding: 3px 8px;
+    color: var(--text-sub); font-size: 10px; font-weight: 600; padding: 2px 7px;
     cursor: pointer; font-family: 'Nunito', sans-serif; transition: border-color 0.1s, color 0.1s; width: auto;
   }
   .client-chip:hover { border-color: var(--accent-md); color: var(--accent); }
 
-  .goal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .goal-field { display: flex; flex-direction: column; gap: 4px; }
-  .current-level { font-size: 10px; color: var(--text-faint); }
+  .modifiers { display: flex; flex-direction: column; gap: 5px; }
 
-  .modifiers { display: flex; flex-direction: column; gap: 6px; }
-  .mod-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .mod-label { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .mod-gap { height: 4px; }
+
+  .mod-row { display: flex; align-items: center; gap: 8px; }
+  .mod-label { font-size: 11px; color: var(--text-muted); flex: 1; }
+
+  .mod-row > .select,
+  .mod-row > .boost-btns,
+  .mod-row > .jewelry-slots,
+  .mod-row > :global(.cs-wrap) { flex: 0 0 155px; }
 
   .select {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 5px;
     color: var(--text); font-size: 11px; padding: 4px 6px;
-    cursor: pointer; flex: 1; min-width: 0; font-family: 'Nunito', sans-serif;
+    cursor: pointer; min-width: 0; width: 100%; font-family: 'Nunito', sans-serif;
   }
   .select:focus { outline: none; border-color: var(--accent-md); }
 
-  .jewelry-slots { display: flex; gap: 3px; flex: 1; }
-  .jewelry-select { flex: 1; min-width: 0; padding-left: 4px; padding-right: 2px; font-size: 10px; }
+  .jewelry-slots { display: flex; gap: 3px; width: 100%; }
+  .jewelry-slots :global(.cs-wrap) { flex: 1; }
 
-  .toggle {
-    background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
-    font-size: 11px; padding: 4px 12px; border-radius: 5px;
-    cursor: pointer; transition: all 0.15s; width: auto;
-  }
-  .toggle.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
-
-  .boost-btns { display: flex; gap: 3px; }
+  .boost-btns { display: flex; gap: 3px; width: 100%; }
   .boost-btn {
-    background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
-    font-size: 10px; font-weight: 700; padding: 4px 6px; border-radius: 5px;
-    cursor: pointer; transition: all 0.15s; white-space: nowrap; width: auto;
+    flex: 1; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
+    font-size: 10px; font-weight: 700; padding: 4px 4px; border-radius: 5px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
     font-family: 'Nunito', sans-serif;
   }
   .boost-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
@@ -423,7 +528,7 @@ function fillFromClient(client: ClientCard) {
 
   .task-list { display: flex; flex-direction: column; gap: 3px; }
   .task-row {
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex; justify-content: space-between; align-items: center; gap: 9px;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
     padding: 7px 10px; cursor: pointer; transition: all 0.15s;
     width: 100%; text-align: left;
@@ -431,20 +536,31 @@ function fillFromClient(client: ClientCard) {
   .task-row:hover { background: var(--bg-hover); }
   .task-row.active { background: var(--bg-hover); border-color: var(--accent-lo); }
 
-  .task-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .task-icon { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+
+  .task-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .task-name-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .task-name { font-size: 11px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task-flag { font-size: 10px; flex-shrink: 0; cursor: help; line-height: 1; }
   .task-level { font-size: 9px; color: var(--text-faint); }
-  .task-phr { font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .task-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+  .task-phr { font-size: 11px; font-weight: 700; }
+  .task-ttg { font-size: 9px; color: var(--text-faint); }
 
   .detail {
     background: var(--bg-deep); border: 1px solid var(--border); border-radius: 6px;
-    padding: 8px 10px; margin-top: -1px; display: flex; flex-direction: column; gap: 5px;
+    padding: 8px 10px; margin-top: -1px; display: flex; flex-direction: column; gap: 4px;
   }
   .detail-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
-  .detail-row.total {
-    border-top: 1px solid var(--border); padding-top: 5px; margin-top: 2px;
-    font-weight: 700; color: var(--text-sub);
+
+  .market-btn {
+    width: 100%; margin-top: 4px;
+    background: var(--bg-raised); border: 1px solid var(--accent-hi);
+    color: var(--accent); font-size: 11px; font-weight: 700;
+    padding: 6px 0; border-radius: 5px; cursor: pointer;
+    transition: background 0.15s; font-family: 'Nunito', sans-serif;
   }
+  .market-btn:hover { background: var(--accent-lo); }
 
   .tip-label { cursor: help; }
 

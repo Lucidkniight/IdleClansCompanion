@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-import { xpToLevel, XP_TABLE, formatGold, formatItemName, createNavListener } from '../lib/store';
+import { xpToLevel, XP_TABLE, formatGold, formatItemName, createNavListener, clients } from '../lib/store';
 
 interface RawProfile {
   username: string | null;
@@ -35,6 +35,62 @@ let loading = false;
 let notFound = false;
 let hasError = false;
 
+// ── Recent players ─────────────────────────────────────────────────────────
+const _RECENT_KEY = 'icc-lookup-recent';
+let recentPlayers: string[] = (() => {
+  try { return JSON.parse(localStorage.getItem(_RECENT_KEY) ?? '[]'); } catch { return []; }
+})();
+
+function addToRecent(name: string) {
+  recentPlayers = [name, ...recentPlayers.filter(n => n.toLowerCase() !== name.toLowerCase())].slice(0, 20);
+  try { localStorage.setItem(_RECENT_KEY, JSON.stringify(recentPlayers)); } catch {}
+}
+
+// ── Clan members ───────────────────────────────────────────────────────────
+let clanMembers: string[] = [];
+let clanMembersLoading = false;
+let _clanFetchedKey = '';
+
+$: {
+  const clans = [...new Set(
+    $clients
+      .filter(c => c.playerName && c.profile?.guildName)
+      .map(c => c.profile!.guildName!)
+  )];
+  const key = clans.sort().join('|');
+  if (key && key !== _clanFetchedKey) {
+    _clanFetchedKey = key;
+    fetchClanMembers(clans);
+  }
+}
+
+async function fetchClanMembers(clanNames: string[]) {
+  clanMembersLoading = true;
+  clanMembers = [];
+  try {
+    const clientSet = new Set($clients.map(c => c.playerName?.toLowerCase()).filter(Boolean) as string[]);
+    const results = await Promise.all(
+      clanNames.map(cn =>
+        fetch(`https://query.idleclans.com/api/Clan/${encodeURIComponent(cn)}/experience`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      )
+    );
+    const members = new Set<string>();
+    for (const data of results) {
+      if (!data?.playerContributions) continue;
+      for (const p of data.playerContributions as { username?: string }[]) {
+        if (p.username && !clientSet.has(p.username.toLowerCase())) {
+          members.add(p.username);
+        }
+      }
+    }
+    clanMembers = [...members].sort();
+  } finally {
+    clanMembersLoading = false;
+  }
+}
+
 const incomingNav = createNavListener('Player Lookup');
 $: if ($incomingNav !== null) { searchInput = $incomingNav; lookup(); }
 
@@ -54,6 +110,17 @@ $: pvmEntries = profile?.pvmStats
 $: enchantEntries = profile?.enchantmentBoosts
   ? Object.entries(profile.enchantmentBoosts).filter(([, v]) => v > 0)
   : [];
+
+const SKILL_ICON: Record<string, string> = {
+  attack: 'Rigour', strength: 'Strength', defence: 'Defence',
+  archery: 'Archery', magic: 'Magic', health: 'Health',
+  woodcutting: 'Woodcutting', fishing: 'Fishing', mining: 'Mining',
+  foraging: 'Foraging', farming: 'Farming',
+  cooking: 'Cooking', smithing: 'Smithing', crafting: 'Crafting',
+  carpentry: 'Carpentry', brewing: 'Brewing', enchanting: 'Enchanting',
+  agility: 'Agility', plundering: 'Plundering',
+  exterminating: 'Exterminating', invocation: 'Invocation',
+};
 
 function skillXp(key: string): number { return skillMap[key] ?? 0; }
 function skillLevel(key: string): number { return xpToLevel(skillXp(key)); }
@@ -115,6 +182,7 @@ async function lookup() {
     if (res.status === 404) { notFound = true; return; }
     if (!res.ok) throw new Error();
     profile = await res.json();
+    if (profile?.username) addToRecent(profile.username);
   } catch {
     hasError = true;
   } finally {
@@ -125,19 +193,88 @@ async function lookup() {
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') lookup();
 }
+
+function clear() {
+  searchInput = '';
+  profile = null;
+  notFound = false;
+  hasError = false;
+}
+
+$: hasResult = loading || notFound || hasError || profile !== null;
+
+$: displayRecent = (() => {
+  const taken = new Set([
+    ...$clients.map(c => c.playerName?.toLowerCase()).filter(Boolean) as string[],
+    ...clanMembers.map(m => m.toLowerCase()),
+  ]);
+  return recentPlayers.filter(n => !taken.has(n.toLowerCase()));
+})();
 </script>
 
 <div class="search-wrap">
-  <input
-    class="search-input"
-    placeholder="Enter player name…"
-    bind:value={searchInput}
-    on:keydown={onKeydown}
-  />
+  <div class="input-wrap">
+    <input
+      class="search-input"
+      placeholder="Enter player name…"
+      bind:value={searchInput}
+      on:keydown={onKeydown}
+    />
+    {#if hasResult}
+      <button class="clear-btn" on:click={clear}>✕</button>
+    {/if}
+  </div>
   <button class="search-btn" on:click={lookup} disabled={loading}>
     {loading ? '…' : '→'}
   </button>
 </div>
+
+{#if !hasResult}
+
+{#if $clients.some(c => c.playerName)}
+  <div class="chip-section">
+    <div class="chip-label">Clients</div>
+    <div class="chip-row">
+      {#each $clients.filter(c => c.playerName) as client}
+        <button class="chip" on:click={() => { searchInput = client.playerName!; lookup(); }}>
+          {client.playerName}
+        </button>
+      {/each}
+    </div>
+  </div>
+{/if}
+
+{#if clanMembersLoading || clanMembers.length}
+  <div class="chip-section">
+    <div class="chip-label">Clan</div>
+    {#if clanMembersLoading}
+      <span class="chip-hint">Loading…</span>
+    {:else}
+      <div class="chip-row">
+        {#each clanMembers as name}
+          <button class="chip" on:click={() => { searchInput = name; lookup(); }}>
+            {name}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
+{/if}
+
+{#if displayRecent.length}
+  <div class="chip-section">
+    <div class="chip-label">Recent</div>
+    <div class="chip-row">
+      {#each displayRecent as name}
+        <button class="chip" on:click={() => { searchInput = name; lookup(); }}>
+          {name}
+        </button>
+      {/each}
+    </div>
+  </div>
+{/if}
+
+{/if}
 
 {#if loading}
   <div class="status">Loading…</div>
@@ -192,6 +329,11 @@ function onKeydown(e: KeyboardEvent) {
           {@const level = skillLevel(key)}
           {@const pct = xpProgress(xp)}
           <div class="skill-row">
+            {#if SKILL_ICON[key]}
+              <img class="skill-icon" src="/skilltaskicons/{SKILL_ICON[key]}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+            {:else}
+              <span class="skill-icon-placeholder"></span>
+            {/if}
             <span class="skill-name">{cap(key)}</span>
             <span class="skill-level">Lv.{level}</span>
             <span class="skill-xp">{xp > 0 ? formatGold(xp) : '—'}</span>
@@ -251,11 +393,13 @@ function onKeydown(e: KeyboardEvent) {
   .search-wrap {
     display: flex;
     gap: 6px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
 
+  .input-wrap { position: relative; flex: 1; }
+
   .search-input {
-    flex: 1;
+    width: 100%;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -265,6 +409,13 @@ function onKeydown(e: KeyboardEvent) {
     font-family: 'Nunito', sans-serif;
   }
   .search-input:focus { outline: none; border-color: var(--accent-md); }
+
+  .clear-btn {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--text-faint); font-size: 11px;
+    cursor: pointer; padding: 2px 4px; line-height: 1; transition: color 0.15s; width: auto;
+  }
+  .clear-btn:hover { color: var(--accent); }
 
   .search-btn {
     background: var(--bg-raised);
@@ -434,13 +585,11 @@ function onKeydown(e: KeyboardEvent) {
 
   /* ── Section label ── */
   .section-label {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--text-faint);
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 8px; white-space: nowrap;
     margin: 8px 0 4px;
   }
+  .section-label::before, .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
   /* ── Skills ── */
   .skills-list {
@@ -452,7 +601,7 @@ function onKeydown(e: KeyboardEvent) {
 
   .skill-row {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 18px 1fr auto auto;
     grid-template-rows: auto 3px;
     column-gap: 6px;
     row-gap: 3px;
@@ -461,6 +610,18 @@ function onKeydown(e: KeyboardEvent) {
     border-radius: 5px;
     padding: 5px 8px 4px;
     align-items: center;
+  }
+
+  .skill-icon {
+    width: 18px; height: 18px;
+    object-fit: contain;
+    grid-row: 1;
+    flex-shrink: 0;
+  }
+
+  .skill-icon-placeholder {
+    width: 18px; height: 18px;
+    grid-row: 1;
   }
 
   .skill-name {
@@ -563,4 +724,25 @@ function onKeydown(e: KeyboardEvent) {
     font-weight: 700;
     color: var(--accent);
   }
+
+  /* ── Quick-access chip sections ── */
+  .chip-section { margin-bottom: 10px; display: flex; flex-direction: column; gap: 5px; }
+
+  .chip-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  }
+  .chip-label::before, .chip-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 3px; }
+
+  .chip {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-sub); font-size: 10px; font-weight: 600; padding: 2px 7px;
+    cursor: pointer; font-family: 'Nunito', sans-serif;
+    transition: border-color 0.1s, color 0.1s; width: auto;
+  }
+  .chip:hover { border-color: var(--accent-md); color: var(--accent); }
+
+  .chip-hint { font-size: 10px; color: var(--text-faint); padding: 2px 0; }
 </style>

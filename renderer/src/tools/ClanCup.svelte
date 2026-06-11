@@ -2,7 +2,7 @@
   export const toolMeta = {
     name: 'Clan Cup',
     desc: 'Cup leaderboards and clan standings',
-    icon: '🏆',
+    icon: '/skilltaskicons/ClanCup.png',
   };
 </script>
 

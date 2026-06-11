@@ -11,6 +11,9 @@ export interface PlayerProfile {
   gameMode: string | null;
   guildName: string | null;
   skillExperiences: Record<string, number> | null;
+  equipment: Record<string, number> | null;
+  enchantmentBoosts: Record<string, number> | null;
+  upgrades: Record<string, number> | null;
   hoursOffline: number;
   activeServerId: string | null;
 }
@@ -48,6 +51,54 @@ export interface Task {
 export interface PriceData {
   lowestSell: number;
   highestBuy: number;
+}
+
+export interface EquipmentItem {
+  id: number;
+  name: string;
+  slot: number;
+  style: number;
+  strengthBonus: number;
+  accuracyBonus: number;
+  archeryAccuracyBonus: number;
+  archeryStrengthBonus: number;
+  magicAccuracyBonus: number;
+  magicStrengthBonus: number;
+  defenceBonus: number;
+  archeryDefenceBonus: number;
+  magicDefenceBonus: number;
+  attackInterval: number;
+  twoHanded: boolean;
+  weaponType: number;
+  extraBoostAgainstWeak: number;
+  skillBoostSkill: number;
+  skillBoostPct: number;
+}
+
+export interface Monster {
+  name: string;
+  attackLevel: number;
+  strengthLevel: number;
+  defenceLevel: number;
+  archeryLevel: number;
+  magicLevel: number;
+  health: number;
+  baseTime: number;
+  respawnTime: number;
+  meleeDefenceBonus: number;
+  archeryDefenceBonus: number;
+  magicDefenceBonus: number;
+  weaknessType: number | null;
+  isBoss: boolean;
+  bossType: number;
+}
+
+export interface ApiErrorEntry {
+  url: string;
+  status: number | null;
+  time: Date;
+  note?: string;
+  detail?: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -108,10 +159,54 @@ export const activeId     = writable<number | null>(null);
 export const previews     = writable<Record<number, string>>({});
 export const scanning     = writable<boolean>(false);
 export const updateReady  = writable<boolean>(false);
+export const apiError     = writable<boolean>(false);
+export const apiErrorLog  = writable<ApiErrorEntry[]>([]);
 export const allItems     = writable<MarketItem[]>([]);
 export const priceCache   = writable<Record<number, PriceData>>({});
 export const profitTasks  = writable<Task[]>([]);
 export const profitSkills = writable<string[]>([]);
+export const allEquipment    = writable<EquipmentItem[]>([]);
+export const allMonsters     = writable<Monster[]>([]);
+export const enchantedToBase = writable<Record<number, number>>({});
+
+export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  let r: Response;
+  try {
+    r = await fetch(url, options);
+  } catch (e) {
+    apiError.set(true);
+    apiErrorLog.update(log => [...log, { url, status: null, time: new Date() }]);
+    throw e;
+  }
+
+  if (!r.ok) {
+    if (r.status === 429) {
+      apiError.set(true);
+      const retryAfter = parseInt(r.headers.get('Retry-After') ?? '0', 10);
+      const waitMs = retryAfter > 0 ? retryAfter * 1000 : 5000;
+      const detail = retryAfter > 0 ? undefined : '(no Retry-After header)';
+      apiErrorLog.update(log => [...log, { url, status: 429, time: new Date(), note: `Retrying in ${waitMs / 1000}s…`, detail }]);
+      await new Promise(res => setTimeout(res, waitMs));
+      let retry: Response;
+      try {
+        retry = await fetch(url, options);
+      } catch (e) {
+        apiErrorLog.update(log => [...log, { url, status: null, time: new Date(), note: 'Retry failed' }]);
+        throw e;
+      }
+      if (retry.ok) {
+        apiErrorLog.update(log => [...log, { url, status: retry.status, time: new Date(), note: 'Retry OK' }]);
+      } else {
+        apiErrorLog.update(log => [...log, { url, status: retry.status, time: new Date(), note: 'Retry failed' }]);
+      }
+      return retry;
+    }
+    apiError.set(true);
+    apiErrorLog.update(log => [...log, { url, status: r.status, time: new Date() }]);
+  }
+
+  return r;
+}
 
 export interface ToolNav { tool: string; param: string; id: number; }
 export const toolNavigation = writable<ToolNav | null>(null);
@@ -136,9 +231,24 @@ function extractPlayerName(title: string): string | null {
   return match?.[1] ?? null;
 }
 
+export interface ClanProfile {
+  serializedUpgrades: string | null;
+  repeatableUpgradeCounts: Record<string, number> | null;
+}
+
 export async function fetchProfile(playerName: string): Promise<PlayerProfile | null> {
   try {
     const res = await fetch(`${API_BASE}/api/Player/profile/${playerName}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchClanProfile(clanName: string): Promise<ClanProfile | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/Clan/recruitment/${encodeURIComponent(clanName)}`);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -216,7 +326,8 @@ export async function refreshPreviews() {
 
 export async function refreshPrices() {
   try {
-    const res = await fetch(`${API_BASE}/api/PlayerMarket/items/prices/latest?includeAveragePrice=false`);
+    const res = await apiFetch(`${API_BASE}/api/PlayerMarket/items/prices/latest?includeAveragePrice=false`);
+    if (!res.ok) return;
     const prices = await res.json();
     const cache: Record<number, PriceData> = {};
     for (const p of prices) {
@@ -234,7 +345,8 @@ export async function refreshPrices() {
 export async function loadGameConfig() {
   if (get(allItems).length > 0) return;
   try {
-    const res = await fetch('https://query.idleclans.com/api/Configuration/game-data');
+    const res = await apiFetch('https://query.idleclans.com/api/Configuration/game-data');
+    if (!res.ok) return;
     const text = await res.text();
     const cleaned = text.replace(/ObjectId\("([^"]+)"\)/g, '"$1"');
     const data = JSON.parse(cleaned);
@@ -279,6 +391,76 @@ export async function loadGameConfig() {
 
     profitTasks.set(tasks);
     profitSkills.set([...new Set(tasks.map(t => t.skill))].sort());
+
+    // Parse equipment items
+    if (data?.Items?.Items && Array.isArray(data.Items.Items)) {
+      const allEq: EquipmentItem[] = data.Items.Items
+        .filter((item: any) => (item.EquipmentSlot ?? 0) > 0 && !item.Discontinued)
+        .map((item: any): EquipmentItem => ({
+          id: item.ItemId,
+          name: item.Name,
+          slot: item.EquipmentSlot,
+          style: item.Style ?? 0,
+          strengthBonus: item.StrengthBonus ?? 0,
+          accuracyBonus: item.AccuracyBonus ?? 0,
+          archeryAccuracyBonus: item.ArcheryAccuracyBonus ?? 0,
+          archeryStrengthBonus: item.ArcheryStrengthBonus ?? 0,
+          magicAccuracyBonus: item.MagicAccuracyBonus ?? 0,
+          magicStrengthBonus: item.MagicStrengthBonus ?? 0,
+          defenceBonus: item.DefenceBonus ?? 0,
+          archeryDefenceBonus: item.ArcheryDefenceBonus ?? 0,
+          magicDefenceBonus: item.MagicDefenceBonus ?? 0,
+          attackInterval: item.AttackInterval ?? 0,
+          twoHanded: item.TwoHanded ?? false,
+          weaponType: item.WeaponType ?? 0,
+          extraBoostAgainstWeak: item.ExtraBoostAgainstWeakEnemiesPercentage ?? 0,
+          skillBoostSkill: item.SkillBoost?.Skill ?? 0,
+          skillBoostPct: item.SkillBoost?.BoostPercentage ?? 0,
+        }));
+
+      // Build enchanted → base ID mapping and filter enchanted variants out
+      const nameToId = new Map(allEq.map(e => [e.name, e.id]));
+      const mapping: Record<number, number> = {};
+      for (const item of allEq) {
+        if (item.name.endsWith('_enchanted')) {
+          const baseName = item.name.slice(0, -'_enchanted'.length);
+          const baseId = nameToId.get(baseName);
+          if (baseId !== undefined) mapping[item.id] = baseId;
+        }
+      }
+      enchantedToBase.set(mapping);
+      allEquipment.set(allEq.filter(e => !e.name.endsWith('_enchanted')));
+    }
+
+    // Parse monsters from combat skill tasks
+    const monsters: Monster[] = [];
+    for (const skillKey of ['Combat', 'Invocation']) {
+      const groups = data.Tasks?.[skillKey];
+      if (!groups) continue;
+      for (const group of groups) {
+        for (const t of group.Items) {
+          if (t.Disabled || t.Hidden || !t.EnemyHealth) continue;
+          monsters.push({
+            name: t.Name,
+            attackLevel: t.EnemyRigourLevel ?? 0,
+            strengthLevel: t.EnemyStrengthLevel ?? 0,
+            defenceLevel: t.EnemyDefenceLevel ?? 0,
+            archeryLevel: t.EnemyArcheryLevel ?? 0,
+            magicLevel: t.EnemyMagicLevel ?? 0,
+            health: t.EnemyHealth,
+            baseTime: t.BaseTime ?? 0,
+            respawnTime: t.EnemyRespawnTime ?? 0,
+            meleeDefenceBonus: t.EnemyDefenceBonus ?? 0,
+            archeryDefenceBonus: t.EnemyArcheryDefenceBonus ?? 0,
+            magicDefenceBonus: t.EnemyMagicDefenceBonus ?? 0,
+            weaknessType: t.AttackStyleWeakness ?? null,
+            isBoss: t.IsBoss ?? false,
+            bossType: t.BossType ?? 0,
+          });
+        }
+      }
+    }
+    allMonsters.set(monsters);
 
     await refreshPrices();
   } catch (e) {

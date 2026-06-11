@@ -2,13 +2,14 @@
   export const toolMeta = {
     name: 'Completionist Calculator',
     desc: 'XP needed for completionist capes',
-    icon: '🎖️',
+    icon: '/itemicons/completionist_cape_tier_4.png',
   };
 </script>
 
 <script lang="ts">
 import { onMount } from 'svelte';
 import { clients, xpToLevel, XP_TABLE, formatGold, formatTime, createNavListener, navigate, profitTasks, loadGameConfig, GATHERING_SKILLS, type Task } from '../lib/store';
+import CustomSelect from '../lib/CustomSelect.svelte';
 
 const STAGES = [
   { level: 90,  label: 'All 90'  },
@@ -25,33 +26,71 @@ const ALL_SKILLS = [
 ];
 
 const TOOL_TIERS = [
-  { label: 'None', value: 0 }, { label: 'Normal', value: 0.04 }, { label: 'Refined', value: 0.06 },
-  { label: 'Great', value: 0.08 }, { label: 'Elite', value: 0.10 }, { label: 'Superior', value: 0.12 },
-  { label: 'Outstanding', value: 0.15 }, { label: 'Godlike', value: 0.20 }, { label: 'Otherworldly', value: 0.25 },
+  { label: 'None',               value: 0 },
+  { label: 'Normal (4%)',        value: 0.04 },
+  { label: 'Refined (6%)',       value: 0.06 },
+  { label: 'Great (8%)',         value: 0.08 },
+  { label: 'Elite (10%)',        value: 0.10 },
+  { label: 'Superior (12%)',     value: 0.12 },
+  { label: 'Outstanding (15%)',  value: 0.15 },
+  { label: 'Godlike (20%)',      value: 0.20 },
+  { label: 'Otherworldly (25%)', value: 0.25 },
 ];
+
 const CAPE_TIERS = [
-  { label: 'None', value: 0 }, { label: 'Tier 1', value: 0.05 }, { label: 'Tier 2', value: 0.10 },
-  { label: 'Tier 3', value: 0.15 }, { label: 'Tier 4', value: 0.20 },
+  { label: 'None',     value: 0 },
+  { label: 'T1 (5%)',  value: 0.05 },
+  { label: 'T2 (10%)', value: 0.10 },
+  { label: 'T3 (15%)', value: 0.15 },
+  { label: 'T4 (20%)', value: 0.20 },
 ];
+
+const GEAR_PIECES_OPTIONS = [0,1,2,3].map(n => ({ label: `${n} piece${n !== 1 ? 's' : ''} (${n * 2}%)`, value: n }));
+
 const JEWELRY_TYPES = [
-  { label: '—', value: 0 },
-  { label: 'Cmn', value: 0.015 },
-  { label: 'Rare', value: 0.035 },
-  { label: 'Exc', value: 0.05 },
+  { short: '—', label: 'None',         value: 0 },
+  { short: 'C', label: 'Common',       value: 0.015 },
+  { short: 'R', label: 'Rare',         value: 0.035 },
+  { short: 'E', label: 'Exceptional',  value: 0.05 },
 ];
+
 const HOUSING_TIERS = [
-  { label: 'None', value: 0 }, { label: 'Tent (5%)', value: 0.05 }, { label: 'Barn (10%)', value: 0.10 },
-  { label: 'Windmill (15%)', value: 0.15 }, { label: 'House (20%)', value: 0.20 },
-  { label: 'Manor (25%)', value: 0.25 }, { label: 'Castle (30%)', value: 0.30 },
+  { label: 'None',            value: 0 },
+  { label: 'Tent (5%)',       value: 0.05 },
+  { label: 'Barn (10%)',      value: 0.10 },
+  { label: 'Windmill (15%)',  value: 0.15 },
+  { label: 'House (20%)',     value: 0.20 },
+  { label: 'Manor (25%)',     value: 0.25 },
+  { label: 'Castle (30%)',    value: 0.30 },
 ];
+
 const PLAYER_HOUSING_TIERS = [
-  { label: 'None', value: 0 },
-  { label: 'Cardboard Box (5%)', value: 0.05 },
-  { label: 'Tent (10%)', value: 0.10 },
+  { label: 'None',                        value: 0 },
+  { label: 'Cardboard Box (5%)',          value: 0.05 },
+  { label: 'Tent (10%)',                  value: 0.10 },
   { label: 'Van Down by the River (15%)', value: 0.15 },
-  { label: 'Small Cabin (20%)', value: 0.20 },
-  { label: 'House (25%)', value: 0.25 },
+  { label: 'Small Cabin (20%)',           value: 0.20 },
+  { label: 'House (25%)',                 value: 0.25 },
 ];
+
+const _MODS_KEY = 'icc-completion-mods';
+const _saved = (() => { try { return JSON.parse(localStorage.getItem(_MODS_KEY) ?? '{}'); } catch { return {}; } })();
+
+let modTool:          number                  = _saved.modTool          ?? 0;
+let modGearPieces:    number                  = _saved.modGearPieces    ?? 0;
+let modJewelry0:      number                  = _saved.modJewelry0      ?? 0;
+let modJewelry1:      number                  = _saved.modJewelry1      ?? 0;
+let modJewelry2:      number                  = _saved.modJewelry2      ?? 0;
+let modJewelry3:      number                  = _saved.modJewelry3      ?? 0;
+let modCapeTier:      number                  = _saved.modCapeTier      ?? 0;
+let modGatherers:     boolean                 = _saved.modGatherers     ?? false;
+let modHousing:       number                  = _saved.modHousing       ?? 0;
+let modPlayerHousing: number                  = _saved.modPlayerHousing ?? 0;
+let modDailyBoost:    'off' | 'avg' | 'full'  = _saved.modDailyBoost   ?? 'avg';
+
+$: try {
+  localStorage.setItem(_MODS_KEY, JSON.stringify({ modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost }));
+} catch {}
 
 let nameInput = '';
 let nameAutoFilled = false;
@@ -60,18 +99,6 @@ let username = '';
 let loading = false;
 let notFound = false;
 let hasError = false;
-
-let modTool = 0;
-let modGearPieces = 0;
-let modJewelry0 = 0;
-let modJewelry1 = 0;
-let modJewelry2 = 0;
-let modJewelry3 = 0;
-let modCapeTier = 0;
-let modGatherers = false;
-let modHousing = 0;
-let modPlayerHousing = 0;
-let modDailyBoost: 'off' | 'avg' | 'full' = 'avg';
 
 const incomingNav = createNavListener('Completionist Calculator');
 $: if ($incomingNav !== null) { nameInput = $incomingNav; nameAutoFilled = true; lookup(); }
@@ -133,6 +160,17 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') lookup();
 }
 
+$: hasResult = loading || notFound || hasError || username !== '';
+
+function clear() {
+  nameInput = '';
+  username = '';
+  skillXpMap = {};
+  notFound = false;
+  hasError = false;
+  nameAutoFilled = false;
+}
+
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -144,6 +182,16 @@ function calcTaskXpPerHr(task: Task): number {
   const dailyMult = modDailyBoost === 'full' ? 1.30 : modDailyBoost === 'avg' ? (1 + 0.30 * 8 / 24) : 1;
   return task.exp * (1 + modHousing) * (1 + modPlayerHousing) * dailyMult / secs * 3600;
 }
+
+const SKILL_ICON: Record<string, string> = {
+  attack: 'Rigour', strength: 'Strength', defence: 'Defence',
+  archery: 'Archery', magic: 'Magic', health: 'Health',
+  woodcutting: 'Woodcutting', fishing: 'Fishing', mining: 'Mining',
+  foraging: 'Foraging', farming: 'Farming',
+  cooking: 'Cooking', smithing: 'Smithing', crafting: 'Crafting',
+  carpentry: 'Carpentry', brewing: 'Brewing', enchanting: 'Enchanting',
+  agility: 'Agility', plundering: 'Plundering', exterminating: 'Exterminating',
+};
 
 let _tipText = '';
 let _tipX = 0;
@@ -159,40 +207,112 @@ $: stageEta = (() => {
   const stage = stages[activeIdx];
   let total = 0;
   let partial = false;
+  const skillTimes: Record<string, number | null> = {};
   for (const s of stage.needing) {
-    const tasks = $profitTasks.filter(t => t.skill === cap(s.skill) && t.level <= s.curLevel);
-    if (tasks.length === 0) { partial = true; continue; }
+    const allTasks = $profitTasks.filter(t => t.skill === cap(s.skill) && t.level <= s.curLevel);
+    const tasks = allTasks.filter(t => calcTaskXpPerHr(t) <= 1_000_000);
+    if (tasks.length === 0) { partial = true; skillTimes[s.skill] = null; continue; }
     const bestXpPerHr = Math.max(...tasks.map(calcTaskXpPerHr));
-    if (bestXpPerHr <= 0) { partial = true; continue; }
-    total += s.xpNeeded / bestXpPerHr * 3600;
+    if (bestXpPerHr <= 0) { partial = true; skillTimes[s.skill] = null; continue; }
+    const t = s.xpNeeded / bestXpPerHr * 3600;
+    skillTimes[s.skill] = t;
+    total += t;
   }
-  return { time: total > 0 ? total : 0, partial };
+  return { time: total > 0 ? total : 0, partial, skillTimes };
 })();
 </script>
 
-<div class="search-wrap">
-  <input
-    class="search-input"
-    class:field-auto={nameAutoFilled}
-    placeholder="Enter player name…"
-    bind:value={nameInput}
-    on:input={() => nameAutoFilled = false}
-    on:keydown={onKeydown}
-  />
-  <button class="search-btn" on:click={lookup} disabled={loading}>
-    {loading ? '…' : '→'}
-  </button>
+<div class="field">
+  <label class="label">Player</label>
+  <div class="search-wrap">
+    <div class="input-wrap">
+      <input
+        class="search-input"
+        class:field-auto={nameAutoFilled}
+        placeholder="Enter player name…"
+        bind:value={nameInput}
+        on:input={() => nameAutoFilled = false}
+        on:keydown={onKeydown}
+      />
+      {#if hasResult}
+        <button class="clear-btn" on:click={clear}>✕</button>
+      {/if}
+    </div>
+    <button class="search-btn" on:click={lookup} disabled={loading}>
+      {loading ? '…' : '→'}
+    </button>
+  </div>
+  {#if !hasResult && clientNames.length}
+    <div class="clients-row">
+      {#each clientNames as name}
+        <button class="client-chip" on:click={() => { nameInput = name; nameAutoFilled = true; lookup(); }}>
+          {name}
+        </button>
+      {/each}
+    </div>
+  {/if}
 </div>
 
-{#if clientNames.length}
-  <div class="clients-row">
-    {#each clientNames as name}
-      <button class="client-chip" on:click={() => { nameInput = name; nameAutoFilled = true; lookup(); }}>
-        {name}
-      </button>
-    {/each}
+<div class="field">
+  <label class="label">Modifiers</label>
+  <div class="modifiers">
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Your equipped tool tier. Higher tiers reduce task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Tool</span>
+      <CustomSelect bind:value={modTool} options={TOOL_TIERS} />
+    </div>
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Skill-specific gear pieces worn. Each piece reduces task time by 2%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gear pieces</span>
+      <CustomSelect bind:value={modGearPieces} options={GEAR_PIECES_OPTIONS} />
+    </div>
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Jewelry slots. Each piece reduces task time — Common 1.5%, Rare 3.5%, Exceptional 5%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Jewelry</span>
+      <div class="jewelry-slots">
+        <CustomSelect bind:value={modJewelry0} options={JEWELRY_TYPES} compact />
+        <CustomSelect bind:value={modJewelry1} options={JEWELRY_TYPES} compact />
+        <CustomSelect bind:value={modJewelry2} options={JEWELRY_TYPES} compact />
+        <CustomSelect bind:value={modJewelry3} options={JEWELRY_TYPES} compact />
+      </div>
+    </div>
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Mastery cape tier. Reduces task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Mastery cape</span>
+      <CustomSelect bind:value={modCapeTier} options={CAPE_TIERS} />
+    </div>
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Clan upgrade that reduces task time by 5% for gathering skills.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gatherers</span>
+      <div class="boost-btns">
+        <button class="boost-btn" class:active={!modGatherers} on:click={() => modGatherers = false}>No</button>
+        <button class="boost-btn" class:active={modGatherers} on:click={() => modGatherers = true}>Yes</button>
+      </div>
+    </div>
+
+    <div class="mod-gap"></div>
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Your clan's housing upgrade level. Increases XP earned per action.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Clan housing</span>
+      <CustomSelect bind:value={modHousing} options={HOUSING_TIERS} />
+    </div>
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Your personal house tier. Increases XP earned per action.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Player house</span>
+      <CustomSelect bind:value={modPlayerHousing} options={PLAYER_HOUSING_TIERS} />
+    </div>
+
+    <div class="mod-row">
+      <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'A 30% XP boost active for 8 hrs/day. Avg applies the effective 24h average (+10%). Full shows the rate while the boost is active.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Daily XP boost</span>
+      <div class="boost-btns">
+        <button class="boost-btn" class:active={modDailyBoost === 'off'} on:click={() => modDailyBoost = 'off'}>Off</button>
+        <button class="boost-btn" class:active={modDailyBoost === 'avg'} on:click={() => modDailyBoost = 'avg'}>Avg</button>
+        <button class="boost-btn" class:active={modDailyBoost === 'full'} on:click={() => modDailyBoost = 'full'}>Full</button>
+      </div>
+    </div>
+
   </div>
-{/if}
+</div>
 
 {#if loading}
   <div class="status">Loading…</div>
@@ -229,99 +349,31 @@ $: stageEta = (() => {
           <div class="skill-list">
             {#each stage.needing as s}
               <button class="skill-row" on:click={() => navigate('XP Calculator', `${cap(s.skill)},${s.currentXp},${stage.level}`)}>
-
+                <img class="s-icon" src="/skilltaskicons/{SKILL_ICON[s.skill]}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
                 <span class="s-name">{cap(s.skill)}</span>
                 <span class="s-lvl">Lv.{s.curLevel}</span>
                 <span class="s-xp">{formatGold(s.xpNeeded)}</span>
+                <span class="s-time">{stageEta?.skillTimes?.[s.skill] != null ? formatTime(stageEta.skillTimes[s.skill]!) : '—'}</span>
               </button>
             {/each}
             <div class="total-row">
               <span>Total XP needed</span>
               <span class="total-val">{formatGold(stage.totalXp)}</span>
             </div>
+            {#if stageEta !== null}
+              <div class="eta-row">
+                <span class="eta-label">Estimated time</span>
+                <span class="eta-val">{formatTime(stageEta.time)}{stageEta.partial ? '*' : ''}</span>
+              </div>
+              {#if stageEta.partial}
+                <p class="eta-note">* Excludes skills with no available tasks (e.g. combat)</p>
+              {/if}
+            {/if}
           </div>
         {/if}
       </div>
     {/each}
   </div>
-
-  {#if activeIdx !== -1}
-    <div class="eta-section">
-      <div class="eta-section-label">ETA Modifiers <span class="manual-tag">manual</span></div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Your equipped tool tier. Higher tiers reduce task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Tool</span>
-        <select class="select" bind:value={modTool}>
-          {#each TOOL_TIERS as t}<option value={t.value}>{t.label} ({t.value * 100}%)</option>{/each}
-        </select>
-      </div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Skill-specific gear pieces worn. Each piece reduces task time by 2%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gear pieces</span>
-        <select class="select" bind:value={modGearPieces}>
-          {#each [0,1,2,3] as n}<option value={n}>{n} piece{n !== 1 ? 's' : ''} ({n * 2}%)</option>{/each}
-        </select>
-      </div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Jewelry slots. Each piece reduces task time — Cmn 1.5%, Rare 3.5%, Exc 5%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Jewelry</span>
-        <div class="jewelry-slots">
-          <select class="select jewelry-select" bind:value={modJewelry0}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
-          <select class="select jewelry-select" bind:value={modJewelry1}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
-          <select class="select jewelry-select" bind:value={modJewelry2}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
-          <select class="select jewelry-select" bind:value={modJewelry3}>
-            {#each JEWELRY_TYPES as j}<option value={j.value}>{j.label}</option>{/each}
-          </select>
-        </div>
-      </div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Mastery cape tier. Reduces task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Mastery cape</span>
-        <select class="select" bind:value={modCapeTier}>
-          {#each CAPE_TIERS as c}<option value={c.value}>{c.label} ({c.value * 100}%)</option>{/each}
-        </select>
-      </div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Your clan's housing upgrade level. Increases XP earned per action.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Clan housing</span>
-        <select class="select" bind:value={modHousing}>
-          {#each HOUSING_TIERS as h}<option value={h.value}>{h.label}</option>{/each}
-        </select>
-      </div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Your personal house tier. Increases XP earned per action.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Player house</span>
-        <select class="select" bind:value={modPlayerHousing}>
-          {#each PLAYER_HOUSING_TIERS as h}<option value={h.value}>{h.label}</option>{/each}
-        </select>
-      </div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'A 30% XP boost active for 8 hrs/day. Avg applies the effective 24h average (+10%). Full shows the rate while the boost is active.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Daily XP boost</span>
-        <div class="boost-btns">
-          <button class="boost-btn" class:active={modDailyBoost === 'off'} on:click={() => modDailyBoost = 'off'}>Off</button>
-          <button class="boost-btn" class:active={modDailyBoost === 'avg'} on:click={() => modDailyBoost = 'avg'}>Avg +10%</button>
-          <button class="boost-btn" class:active={modDailyBoost === 'full'} on:click={() => modDailyBoost = 'full'}>Full +30%</button>
-        </div>
-      </div>
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Clan upgrade that reduces task time by 5% for gathering skills.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gatherers upgrade</span>
-        <button class="toggle" class:active={modGatherers} on:click={() => modGatherers = !modGatherers}>
-          {modGatherers ? 'Yes' : 'No'}
-        </button>
-      </div>
-      <div class="eta-result">
-        <span class="eta-label">Time to {stages[activeIdx].label}</span>
-        <span class="eta-val">
-          {#if stageEta !== null}
-            {formatTime(stageEta.time)}{stageEta.partial ? '*' : ''}
-          {:else}—{/if}
-        </span>
-      </div>
-      {#if stageEta?.partial}
-        <p class="eta-note">* Excludes skills with no available tasks (e.g. combat)</p>
-      {/if}
-    </div>
-  {/if}
 
 {/if}
 
@@ -332,297 +384,157 @@ $: stageEta = (() => {
 {/if}
 
 <style>
-  .search-wrap {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 6px;
+  .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+  .label {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--accent); display: flex; align-items: center; gap: 8px; white-space: nowrap;
   }
+  .label::before, .label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .search-wrap { display: flex; gap: 6px; }
+
+  .input-wrap { position: relative; flex: 1; }
 
   .search-input {
-    flex: 1;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    font-size: 12px;
-    padding: 7px 10px;
+    width: 100%; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 12px; padding: 7px 10px;
     font-family: 'Nunito', sans-serif;
   }
   .search-input:focus { outline: none; border-color: var(--accent-md); }
 
+  .clear-btn {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--text-faint); font-size: 11px;
+    cursor: pointer; padding: 2px 4px; line-height: 1; transition: color 0.15s; width: auto;
+  }
+  .clear-btn:hover { color: var(--accent); }
+
   .search-btn {
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--accent);
-    font-size: 13px;
-    padding: 0 12px;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    font-family: 'Nunito', sans-serif;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--accent); font-size: 13px; padding: 0 12px; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s; font-family: 'Nunito', sans-serif;
     flex-shrink: 0;
   }
   .search-btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--accent-md); }
   .search-btn:disabled { opacity: 0.4; cursor: default; }
 
-  .clients-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-bottom: 8px;
-  }
-
+  .clients-row { display: flex; flex-wrap: wrap; gap: 3px; }
   .client-chip {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text-sub);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 3px 8px;
-    cursor: pointer;
-    font-family: 'Nunito', sans-serif;
-    transition: border-color 0.1s, color 0.1s;
-    width: auto;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-sub); font-size: 10px; font-weight: 600; padding: 2px 7px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: border-color 0.1s, color 0.1s; width: auto;
   }
   .client-chip:hover { border-color: var(--accent-md); color: var(--accent); }
 
-  .status {
-    text-align: center;
-    font-size: 11px;
-    color: var(--text-faint);
-    padding: 16px 0;
-  }
+  .status { text-align: center; font-size: 11px; color: var(--text-faint); padding: 16px 0; }
   .status.error { color: #7a3a3a; }
 
+  .modifiers { display: flex; flex-direction: column; gap: 5px; }
+
+  .mod-gap { height: 4px; }
+
+  .mod-row { display: flex; align-items: center; gap: 8px; }
+  .mod-label { font-size: 11px; color: var(--text-muted); flex: 1; }
+
+  .mod-row > .boost-btns,
+  .mod-row > .jewelry-slots,
+  .mod-row > :global(.cs-wrap) { flex: 0 0 155px; }
+
+  .jewelry-slots { display: flex; gap: 3px; width: 100%; }
+  .jewelry-slots :global(.cs-wrap) { flex: 1; }
+
+  .boost-btns { display: flex; gap: 3px; width: 100%; }
+  .boost-btn {
+    flex: 1; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted);
+    font-size: 10px; font-weight: 700; padding: 4px 4px; border-radius: 5px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    font-family: 'Nunito', sans-serif;
+  }
+  .boost-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
+  .boost-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
+
+  .tip-label { cursor: help; }
+
   .player-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    margin-bottom: 8px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; margin-bottom: 8px;
   }
-
-  .player-name {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-hi);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .next-hint {
-    font-size: 10px;
-    color: var(--text-dim);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+  .player-name { font-size: 13px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .next-hint { font-size: 10px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
   .next-hint strong { color: var(--accent); }
+  .max-badge { font-size: 10px; font-weight: 700; color: var(--pos); white-space: nowrap; flex-shrink: 0; }
 
-  .max-badge {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--pos);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .stages {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
+  .stages { display: flex; flex-direction: column; gap: 4px; }
 
   .stage-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    overflow: hidden;
-    transition: border-color 0.15s;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 7px; overflow: hidden; transition: border-color 0.15s;
   }
-
-  .stage-card.active {
-    border-color: var(--accent-hi);
-  }
-
-  .stage-card.complete {
-    opacity: 0.55;
-  }
+  .stage-card.active { border-color: var(--accent-hi); }
+  .stage-card.complete { opacity: 0.55; }
 
   .stage-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 7px 10px;
-    gap: 6px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; gap: 6px;
   }
-
-  .stage-label {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-hi);
-  }
+  .stage-label { font-size: 12px; font-weight: 700; color: var(--text-hi); }
 
   .badge {
-    font-size: 9px;
-    font-weight: 700;
-    border-radius: 4px;
-    padding: 2px 6px;
-    white-space: nowrap;
-    flex-shrink: 0;
-    letter-spacing: 0.3px;
+    font-size: 9px; font-weight: 700; border-radius: 4px; padding: 2px 6px;
+    white-space: nowrap; flex-shrink: 0; letter-spacing: 0.3px;
   }
-
   .complete-badge {
-    color: var(--pos);
-    background: color-mix(in srgb, var(--pos) 12%, transparent);
+    color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent);
     border: 1px solid color-mix(in srgb, var(--pos) 30%, transparent);
   }
-
-  .remaining-badge {
-    color: var(--text-dim);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-  }
-
-  .remaining-badge.active-badge {
-    color: var(--accent);
-    background: var(--accent-lo);
-    border-color: var(--accent-md);
-  }
+  .remaining-badge { color: var(--text-dim); background: var(--bg-raised); border: 1px solid var(--border); }
+  .remaining-badge.active-badge { color: var(--accent); background: var(--accent-lo); border-color: var(--accent-md); }
 
   .skill-list {
-    border-top: 1px solid var(--border);
-    padding: 6px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    border-top: 1px solid var(--border); padding: 6px 10px;
+    display: flex; flex-direction: column; gap: 2px;
   }
 
   .skill-row {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 6px;
-    align-items: center;
-    padding: 4px 6px;
+    display: grid; grid-template-columns: 16px 1fr auto auto auto;
+    gap: 6px; align-items: center; padding: 4px 6px;
     border-bottom: 1px solid var(--divider);
-    background: none;
-    border-left: none;
-    border-right: none;
-    border-top: none;
-    border-radius: 4px;
-    width: 100%;
-    text-align: left;
-    cursor: pointer;
-    font-family: 'Nunito', sans-serif;
-    transition: background 0.1s;
-    margin: 0 -6px;
-    width: calc(100% + 12px);
+    background: none; border-left: none; border-right: none; border-top: none;
+    border-radius: 4px; width: calc(100% + 12px); text-align: left;
+    cursor: pointer; font-family: 'Nunito', sans-serif;
+    transition: background 0.1s; margin: 0 -6px;
   }
   .skill-row:last-of-type { border-bottom: none; }
   .skill-row:hover { background: var(--bg-hover); }
   .skill-row:hover .s-name { color: var(--accent); }
 
-  .s-name {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text);
-  }
+  .s-icon { width: 16px; height: 16px; object-fit: contain; }
 
-  .s-lvl {
-    font-size: 10px;
-    color: var(--text-dim);
-    text-align: right;
-    white-space: nowrap;
-  }
-
-  .s-xp {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--accent);
-    text-align: right;
-    white-space: nowrap;
-    min-width: 44px;
-  }
+  .s-name { font-size: 11px; font-weight: 600; color: var(--text); }
+  .s-lvl { font-size: 10px; color: var(--text-dim); text-align: right; white-space: nowrap; }
+  .s-xp { font-size: 11px; font-weight: 700; color: var(--accent); text-align: right; white-space: nowrap; min-width: 44px; }
+  .s-time { font-size: 10px; color: var(--text-dim); text-align: right; white-space: nowrap; min-width: 52px; }
 
   .total-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-top: 5px;
-    margin-top: 2px;
-    border-top: 1px solid var(--border);
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--text-sub);
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 5px; margin-top: 2px; border-top: 1px solid var(--border);
+    font-size: 10px; font-weight: 700; color: var(--text-sub);
   }
+  .total-val { color: var(--accent); font-size: 11px; }
 
-  .total-val {
-    color: var(--accent);
+  .eta-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 5px; margin-top: 2px; border-top: 1px solid var(--border);
     font-size: 11px;
   }
+  .eta-label { font-weight: 700; color: var(--text-sub); }
+  .eta-val { font-size: 12px; font-weight: 700; color: var(--accent); }
+  .eta-note { font-size: 9px; color: var(--text-dim); margin: 2px 0 0; }
 
   .field-auto {
     border-color: var(--accent-md) !important;
     background: color-mix(in srgb, var(--accent) 7%, var(--bg-card)) !important;
   }
-
-  .eta-section {
-    margin-top: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .eta-section-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--text-faint);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 2px;
-  }
-
-  .manual-tag {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 1px 5px;
-  }
-
-  .mod-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .mod-label { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
-
-  .select {
-    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 5px;
-    color: var(--text); font-size: 11px; padding: 4px 6px;
-    cursor: pointer; flex: 1; min-width: 0; font-family: 'Nunito', sans-serif;
-  }
-  .select:focus { outline: none; border-color: var(--accent-md); }
-
-  .jewelry-slots { display: flex; gap: 3px; flex: 1; }
-  .jewelry-select { flex: 1; min-width: 0; padding-left: 4px; padding-right: 2px; font-size: 10px; }
-
-  .boost-btns { display: flex; gap: 3px; }
-  .boost-btn {
-    background: var(--bg-raised); border: 1px solid var(--border); color: var(--text-muted);
-    font-size: 10px; font-weight: 700; padding: 4px 6px; border-radius: 5px;
-    cursor: pointer; transition: all 0.15s; white-space: nowrap; width: auto;
-    font-family: 'Nunito', sans-serif;
-  }
-  .boost-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
-  .boost-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-card); }
-
-  .tip-label { cursor: help; }
 
   .tooltip {
     position: fixed; z-index: 9999; pointer-events: none;
@@ -630,39 +542,5 @@ $: stageEta = (() => {
     border-radius: 5px; padding: 5px 8px;
     font-size: 10px; color: var(--text-muted); line-height: 1.5;
     max-width: 180px; box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-  }
-
-  .toggle {
-    background: var(--bg-raised); border: 1px solid var(--border); color: var(--text-muted);
-    font-size: 11px; padding: 4px 12px; border-radius: 5px;
-    cursor: pointer; transition: all 0.15s; width: auto;
-  }
-  .toggle.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-card); }
-
-  .eta-result {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-top: 6px;
-    margin-top: 2px;
-    border-top: 1px solid var(--border);
-  }
-
-  .eta-label {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--text-sub);
-  }
-
-  .eta-val {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--accent);
-  }
-
-  .eta-note {
-    font-size: 9px;
-    color: var(--text-dim);
-    margin: 0;
   }
 </style>

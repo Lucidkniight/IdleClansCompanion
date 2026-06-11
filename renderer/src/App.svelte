@@ -7,7 +7,7 @@ import { onMount, onDestroy } from 'svelte';
 import {
   type PlayerProfile, type ClientCard,
   xpToLevel,
-  clients, activeId, previews, updateReady,
+  clients, activeId, previews, updateReady, apiError, apiErrorLog,
   scan, focusClient, refreshPreviews, loadGameConfig, refreshPrices,
   toolNavigation,
 } from './lib/store';
@@ -61,6 +61,46 @@ $: filteredTools = toolSearch.trim() === ''
 type Tab = 'clients' | 'tools';
 let activeTab: Tab = 'clients';
 let showSettings = false;
+let showApiDetails = false;
+let showWipeModal = false;
+
+function wipeData() {
+  localStorage.clear();
+  location.reload();
+}
+
+let _tipText = '';
+let _tipX = 0;
+let _tipY = 0;
+let _tipVisible = false;
+function showTip(e: MouseEvent, text: string) { _tipText = text; _tipX = e.clientX; _tipY = e.clientY; _tipVisible = true; }
+function moveTip(e: MouseEvent) { _tipX = e.clientX; _tipY = e.clientY; }
+function hideTip() { _tipVisible = false; }
+
+function dismissApiError() {
+  apiError.set(false);
+  apiErrorLog.set([]);
+  showApiDetails = false;
+}
+
+function getModeLogo(mode: string | null): string {
+  const m = mode?.toLowerCase() ?? '';
+  if (m === 'ironman' || m === 'ultimateironman') return '/logos/Ironman.png';
+  if (m === 'groupironmanprestige') return '/logos/GroupIronmanPrestige.png';
+  if (m === 'groupironman') return '/logos/GroupIronman.png';
+  return '/logos/Default.png';
+}
+
+function statusLabel(status: number | null): string {
+  if (status === null) return 'Network error';
+  const labels: Record<number, string> = {
+    200: 'OK', 201: 'Created', 204: 'No content',
+    400: 'Bad request', 401: 'Unauthorized', 403: 'Forbidden',
+    404: 'Not found', 408: 'Timeout', 429: 'Too many req',
+    500: 'Server error', 502: 'Bad gateway', 503: 'Unavailable', 504: 'Gateway timeout',
+  };
+  return labels[status] ?? `HTTP ${status}`;
+}
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 const THEMES = ['dark', 'light', 'vaporwave', 'slate', 'forest', 'ocean', 'midnight', 'rose', 'ember'] as const;
@@ -89,6 +129,7 @@ const _storedFps = parseFloat(localStorage.getItem('s-prev-fps') ?? '1');
 let settingPreviewFpsIdx = (() => { const i = FPS_OPTIONS.indexOf(_storedFps); return i !== -1 ? i : 4; })();
 let settingPreviewFps = FPS_OPTIONS[settingPreviewFpsIdx];
 let settingTheme       = (localStorage.getItem('s-theme') ?? 'dark') as Theme;
+let settingApiDebug    = localStorage.getItem('s-api-debug') === 'true';
 
 applyTheme(settingTheme);
 
@@ -96,6 +137,7 @@ $: {
   localStorage.setItem('s-aot', String(settingAlwaysOnTop));
   (window as any).electronAPI.setAlwaysOnTop(settingAlwaysOnTop);
 }
+$: localStorage.setItem('s-api-debug', String(settingApiDebug));
 
 $: {
   localStorage.setItem('s-theme', settingTheme);
@@ -175,6 +217,44 @@ onDestroy(() => {
     </div>
   {/if}
 
+  {#if $apiError && settingApiDebug}
+    <div class="error-banner">
+      <span>API error detected</span>
+      <div class="error-banner-btns">
+        <button class="dismiss-btn" on:click={() => showApiDetails = !showApiDetails}>
+          {showApiDetails ? 'Hide' : 'Details'}
+        </button>
+        <button class="dismiss-btn" on:click={dismissApiError}>Dismiss</button>
+      </div>
+    </div>
+    {#if showApiDetails}
+      <div class="error-details">
+        {#if $apiErrorLog.length === 0}
+          <div class="error-entry error-empty">No details available</div>
+        {:else}
+          {#each $apiErrorLog as entry}
+            <div class="error-entry">
+              <div class="error-meta">
+                <span class="error-time">{entry.time.toLocaleTimeString()}</span>
+                <span class="error-status" class:error-net={entry.status === null} class:error-ok={entry.note === 'Retry OK'}>
+                  {entry.status ?? 'Network'}
+                </span>
+                <span class="error-label">{statusLabel(entry.status)}</span>
+                {#if entry.note}
+                  <span class="error-note">{entry.note}</span>
+                {/if}
+                {#if entry.detail}
+                  <span class="error-note">{entry.detail}</span>
+                {/if}
+              </div>
+              <span class="error-url">{entry.url}</span>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
+  {/if}
+
   {#if !showSettings}
   <div class="tabs">
     <button class="tab" class:active={activeTab === 'clients'} on:click={() => activeTab = 'clients'}>
@@ -196,8 +276,14 @@ onDestroy(() => {
       <div class="settings-group">
         <div class="settings-group-label">General</div>
         <div class="settings-row">
-          <span class="settings-label">Always on top</span>
+          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Keeps the companion window above all other windows.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Always on top</span>
           <button class="toggle" class:on={settingAlwaysOnTop} on:click={() => settingAlwaysOnTop = !settingAlwaysOnTop}>
+            <span class="toggle-thumb" />
+          </button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Shows a banner when API requests fail.\nUseful for diagnosing connection issues.')} on:mousemove={moveTip} on:mouseleave={hideTip}>API debug mode</span>
+          <button class="toggle" class:on={settingApiDebug} on:click={() => settingApiDebug = !settingApiDebug}>
             <span class="toggle-thumb" />
           </button>
         </div>
@@ -231,6 +317,14 @@ onDestroy(() => {
           {/each}
         </div>
       </div>
+
+      <div class="settings-group settings-group-danger">
+        <div class="settings-group-label">Danger Zone</div>
+        <div class="settings-row">
+          <span class="settings-label">Wipe all app data</span>
+          <button class="wipe-btn" on:click={() => showWipeModal = true}>Wipe</button>
+        </div>
+      </div>
     </div>
     {/if}
 
@@ -257,7 +351,7 @@ onDestroy(() => {
             >
               {#if !client.playerName}
                 <div class="card-top">
-                  <div class="avatar ghost">?</div>
+                  <div class="avatar ghost"><img class="avatar-logo" src="/logos/Default.png" alt="" /></div>
                   <div class="card-info">
                     <span class="card-name muted">Not logged in</span>
                     <span class="card-clan">Idle Clans</span>
@@ -267,7 +361,7 @@ onDestroy(() => {
 
               {:else if client.loading}
                 <div class="card-top">
-                  <div class="avatar ghost">{client.playerName[0].toUpperCase()}</div>
+                  <div class="avatar ghost"><img class="avatar-logo" src="/logos/Default.png" alt="" /></div>
                   <div class="card-info">
                     <span class="card-name">{client.playerName}</span>
                     <span class="card-clan loading-text">Loading...</span>
@@ -277,7 +371,7 @@ onDestroy(() => {
 
               {:else if client.error || !client.profile}
                 <div class="card-top">
-                  <div class="avatar ghost">{client.playerName[0].toUpperCase()}</div>
+                  <div class="avatar ghost"><img class="avatar-logo" src="/logos/Default.png" alt="" /></div>
                   <div class="card-info">
                     <span class="card-name">{client.playerName}</span>
                     <span class="card-clan error-text">Could not load profile</span>
@@ -296,7 +390,7 @@ onDestroy(() => {
                 {@const status = getOnlineStatus(client.profile)}
                 {@const totalLevel = getTotalLevel(client.profile)}
                 <div class="card-top">
-                  <div class="avatar">{client.playerName[0].toUpperCase()}</div>
+                  <div class="avatar"><img class="avatar-logo" src={getModeLogo(client.profile.gameMode)} alt="" /></div>
                   <div class="card-info">
                     <span class="card-name">{client.playerName}</span>
                     <span class="card-clan">{client.profile.guildName ?? 'No clan'}</span>
@@ -337,7 +431,11 @@ onDestroy(() => {
         <div class="calc-list">
           {#each filteredTools as tool}
             <button class="calc-item" on:click={() => openTool(tool)}>
-              <span class="calc-item-icon">{tool.toolMeta.icon}</span>
+              {#if tool.toolMeta.icon.startsWith('/')}
+                <img class="calc-item-icon-img" src={tool.toolMeta.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = '/image_placeholder.png'; }} />
+              {:else}
+                <span class="calc-item-icon">{tool.toolMeta.icon}</span>
+              {/if}
               <div class="calc-item-info">
                 <span class="calc-item-name">{tool.toolMeta.name}</span>
                 <span class="calc-item-desc">{tool.toolMeta.desc}</span>
@@ -364,6 +462,25 @@ onDestroy(() => {
     <span class="version">v{__APP_VERSION__}</span>
   </div>
 </div>
+
+{#if showWipeModal}
+  <div class="modal-overlay" role="presentation" on:click={() => showWipeModal = false}>
+    <div class="modal" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+      <div class="modal-title">Wipe App Data</div>
+      <p class="modal-body">This will permanently delete all app data, including saved settings and your Notepad contents. This cannot be undone.</p>
+      <div class="modal-actions">
+        <button class="modal-cancel" on:click={() => showWipeModal = false}>Cancel</button>
+        <button class="modal-wipe" on:click={wipeData}>Wipe</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if _tipVisible}
+  <div class="tooltip" style="left:{Math.min(_tipX + 14, window.innerWidth - 200)}px; top:{_tipY + 18}px;">
+    {_tipText}
+  </div>
+{/if}
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Nunito:wght@400;600;700&display=swap');
@@ -668,6 +785,43 @@ onDestroy(() => {
   }
   .restart-btn:hover { background: #3a5a3a; border-color: #4ade80; }
 
+  .error-banner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; background: #2a1a1a; border-bottom: 1px solid #4a2a2a;
+    font-size: 12px; color: #e05555; font-weight: 600;
+  }
+  .error-banner-btns { display: flex; gap: 6px; align-items: center; }
+  .dismiss-btn {
+    background: #4a2a2a; border: 1px solid #e0555544; color: #e05555;
+    padding: 3px 10px; border-radius: 4px; font-size: 11px;
+    cursor: pointer; transition: all 0.15s; width: auto;
+  }
+  .dismiss-btn:hover { background: #5a2a2a; border-color: #e05555; }
+
+  .error-details {
+    background: #1a1010; border-bottom: 1px solid #4a2a2a;
+    max-height: 100vh; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: #4a2a2a transparent;
+  }
+  .error-entry {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 5px 14px; border-bottom: 1px solid #261616;
+    font-size: 12px; font-family: monospace;
+  }
+  .error-entry:last-child { border-bottom: none; }
+  .error-empty { color: #7a5555; font-style: italic; font-family: 'Nunito', sans-serif; }
+  .error-meta { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+  .error-time { color: #7a5555; }
+  .error-status {
+    background: #3a1515; color: #e05555; border: 1px solid #5a2a2a;
+    border-radius: 3px; padding: 0 4px; font-size: 11px; font-weight: bold; flex-shrink: 0;
+  }
+  .error-net { background: #2a1a2e; border-color: #6a3a7a; color: #c060c0; }
+  .error-ok  { background: #1a2e1a; border-color: #3a6a3a; color: #4ade80; }
+  .error-url { color: #8a6060; word-break: break-all; }
+  .error-label { font-size: 10px; color: #7a5555; font-family: 'Nunito', sans-serif; }
+  .error-note  { font-size: 10px; color: #7a5555; font-style: italic; font-family: 'Nunito', sans-serif; }
+
   .tabs { display: flex; padding: 8px 8px 0; gap: 2px; border-bottom: 1px solid var(--divider); }
   .tab {
     flex: 1; background: none; border: none; border-bottom: 2px solid transparent;
@@ -741,6 +895,7 @@ onDestroy(() => {
     font-family: 'Cinzel', serif; font-size: 14px; font-weight: 600; color: var(--accent); flex-shrink: 0;
   }
   .avatar.ghost { color: var(--text-dim); border-color: var(--border); }
+  .avatar-logo { width: 20px; height: 20px; object-fit: contain; }
 
   .card-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .card-name { font-size: 13px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -776,6 +931,7 @@ onDestroy(() => {
   }
   .calc-item:hover { border-color: var(--accent-lo); background: var(--bg-hover); }
   .calc-item-icon { font-size: 18px; flex-shrink: 0; }
+  .calc-item-icon-img { width: 24px; height: 24px; object-fit: contain; flex-shrink: 0; }
   .calc-item-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .calc-item-name { font-size: 12px; font-weight: 700; color: var(--text-hi); }
   .calc-item-desc { font-size: 10px; color: var(--text-faint); }
@@ -788,4 +944,47 @@ onDestroy(() => {
 
   .footer { padding: 8px 14px; border-top: 1px solid var(--divider); display: flex; justify-content: flex-end; }
   .version { font-size: 10px; color: var(--border); letter-spacing: 0.5px; }
+
+  .settings-group-danger .settings-group-label { color: var(--neg); }
+  .wipe-btn {
+    background: none; border: 1px solid var(--neg); color: var(--neg);
+    font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 4px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
+  }
+  .wipe-btn:hover { background: rgba(224, 85, 85, 0.12); }
+
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 9998;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; width: 260px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .modal-title { font-size: 13px; font-weight: 700; color: var(--text-hi); }
+  .modal-body { font-size: 11px; color: var(--text-sub); line-height: 1.6; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal-cancel {
+    background: var(--bg-raised); border: 1px solid var(--border); color: var(--text-sub);
+    font-size: 11px; font-weight: 700; padding: 5px 14px; border-radius: 5px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
+  }
+  .modal-cancel:hover { border-color: var(--accent-md); color: var(--accent); }
+  .modal-wipe {
+    background: rgba(224, 85, 85, 0.15); border: 1px solid #e05555; color: #e05555;
+    font-size: 11px; font-weight: 700; padding: 5px 14px; border-radius: 5px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
+  }
+  .modal-wipe:hover { background: rgba(224, 85, 85, 0.28); }
+
+  .tip-label { cursor: help; }
+  .tooltip {
+    position: fixed; z-index: 9999; pointer-events: none;
+    background: var(--bg-deep); border: 1px solid var(--border);
+    border-radius: 5px; padding: 5px 8px;
+    font-size: 10px; color: var(--text-muted); line-height: 1.5;
+    white-space: pre-line; max-width: 200px;
+  }
 </style>

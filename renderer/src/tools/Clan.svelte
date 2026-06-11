@@ -2,12 +2,13 @@
   export const toolMeta = {
     name: 'Clan',
     desc: 'Clan XP leaderboard & cup standings',
-    icon: '🛡️',
+    icon: '/skilltaskicons/Clan.png',
   };
 </script>
 
 <script lang="ts">
 import { formatGold, xpToLevel, fetchProfile, navigate, createNavListener, clients, type ClientCard } from '../lib/store';
+import CustomSelect from '../lib/CustomSelect.svelte';
 
 interface CupStanding {
   objective: string;
@@ -34,7 +35,6 @@ let viewMode: ViewMode = 'lifetime';
 let clanLoading = false;
 let clanError = false;
 let selectedSkill = 'Total';
-let dropdownOpen = false;
 let cupStandings: CupStanding[] = [];
 let _cupGen = 0;
 type CupSection = 'skills' | 'kills' | 'speed' | 'points';
@@ -190,13 +190,20 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') fetchClan();
 }
 
-function selectSkill(skill: string) {
-  selectedSkill = skill;
-  dropdownOpen = false;
-}
-
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+$: hasResult = clanLoading || clanError || players.length > 0;
+
+function clear() {
+  clanInput = '';
+  clanName = '';
+  lifetimePlayers = [];
+  contributedPlayers = [];
+  clanError = false;
+  clanAutoFilled = false;
+  cupStandings = [];
 }
 
 $: clientsWithClan = (() => {
@@ -219,24 +226,27 @@ function fillFromClient(client: ClientCard) {
 }
 </script>
 
-<svelte:window on:click={() => (dropdownOpen = false)} />
-
 <div class="clan-tool">
   <div class="clan-input-wrap">
-    <input
-      class="clan-input"
-      class:field-auto={clanAutoFilled}
-      placeholder="Enter clan name…"
-      bind:value={clanInput}
-      on:input={() => clanAutoFilled = false}
-      on:keydown={onKeydown}
-    />
+    <div class="input-wrap">
+      <input
+        class="clan-input"
+        class:field-auto={clanAutoFilled}
+        placeholder="Enter clan name…"
+        bind:value={clanInput}
+        on:input={() => clanAutoFilled = false}
+        on:keydown={onKeydown}
+      />
+      {#if hasResult}
+        <button class="clear-btn" on:click={clear}>✕</button>
+      {/if}
+    </div>
     <button class="clan-search-btn" on:click={fetchClan} disabled={clanLoading}>
       {clanLoading ? '…' : '→'}
     </button>
   </div>
 
-  {#if clientsWithClan.length}
+  {#if !hasResult && clientsWithClan.length}
     <div class="clients-row">
       {#each clientsWithClan as client}
         <button class="client-chip" on:click={() => fillFromClient(client)}>
@@ -293,27 +303,7 @@ function fillFromClient(client: ClientCard) {
     {/if}
 
     <div class="skill-row">
-      <div class="skill-dropdown" on:click|stopPropagation={() => (dropdownOpen = !dropdownOpen)}>
-        <button class="skill-dropdown-trigger" class:open={dropdownOpen}>
-          <span>{cap(selectedSkill)}</span>
-          <svg width="8" height="5" viewBox="0 0 8 5" class="chevron" class:flipped={dropdownOpen}>
-            <path d="M0 0l4 5 4-5z" fill="currentColor" />
-          </svg>
-        </button>
-        {#if dropdownOpen}
-          <div class="skill-dropdown-menu">
-            {#each skills as skill}
-              <button
-                class="skill-dropdown-item"
-                class:active={selectedSkill === skill}
-                on:click|stopPropagation={() => selectSkill(skill)}
-              >
-                {cap(skill)}
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
+      <CustomSelect bind:value={selectedSkill} options={skills.map(s => ({ label: cap(s), value: s }))} />
       <div class="view-toggle">
         <button class="view-btn" class:active={viewMode === 'lifetime'} on:click={() => viewMode = 'lifetime'}>Lifetime</button>
         <button class="view-btn" class:active={viewMode === 'contributed'} on:click={() => viewMode = 'contributed'}>Contrib</button>
@@ -352,8 +342,16 @@ function fillFromClient(client: ClientCard) {
     margin-bottom: 8px;
   }
 
+  .input-wrap { position: relative; flex: 1; }
+  .clear-btn {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--text-faint); font-size: 11px;
+    cursor: pointer; padding: 2px 4px; line-height: 1; transition: color 0.15s; width: auto;
+  }
+  .clear-btn:hover { color: var(--accent); }
+
   .clan-input {
-    flex: 1;
+    width: 100%;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -410,7 +408,7 @@ function fillFromClient(client: ClientCard) {
     text-overflow: ellipsis;
   }
   .skill-row { display: flex; align-items: stretch; gap: 4px; margin-bottom: 8px; }
-  .skill-row .skill-dropdown { flex: 1; min-width: 0; margin-bottom: 0; }
+  .skill-row :global(.cs-wrap) { flex: 1; min-width: 0; }
 
   .view-toggle { display: flex; gap: 3px; flex-shrink: 0; }
   .view-btn {
@@ -421,79 +419,6 @@ function fillFromClient(client: ClientCard) {
   }
   .view-btn:hover { color: var(--text-sub); border-color: var(--accent-lo); }
   .view-btn.active { color: var(--accent); border-color: var(--accent-hi); background: var(--bg-raised); }
-
-  .clan-meta {
-    font-size: 9px;
-    color: var(--text-dim);
-    white-space: nowrap;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-  }
-
-  .skill-dropdown {
-    position: relative;
-    user-select: none;
-  }
-
-  .skill-dropdown-trigger {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 6px 8px;
-    font-family: 'Nunito', sans-serif;
-    cursor: pointer;
-    transition: border-color 0.1s;
-  }
-  .skill-dropdown-trigger:hover,
-  .skill-dropdown-trigger.open { border-color: var(--accent-md); }
-
-  .chevron {
-    flex-shrink: 0;
-    color: var(--text-dim);
-    transition: transform 0.15s;
-  }
-  .chevron.flipped { transform: rotate(180deg); }
-
-  .skill-dropdown-menu {
-    position: absolute;
-    top: calc(100% + 3px);
-    left: 0;
-    right: 0;
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    z-index: 20;
-    max-height: 160px;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
-    padding: 3px;
-  }
-
-  .skill-dropdown-item {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    border-radius: 4px;
-    color: var(--text-sub);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 5px 8px;
-    font-family: 'Nunito', sans-serif;
-    cursor: pointer;
-    transition: background 0.1s, color 0.1s;
-  }
-  .skill-dropdown-item:hover { background: var(--bg-card); color: var(--text); }
-  .skill-dropdown-item.active { color: var(--accent); }
 
   .leaderboard {
     display: flex;

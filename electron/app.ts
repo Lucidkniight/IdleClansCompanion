@@ -54,7 +54,6 @@ async function main() {
   mainWindow.setMenuBarVisibility(false);
 
   Menu.setApplicationMenu(null);
-  // mainWindow.webContents.openDevTools();
 }
 
 ipcMain.handle('get-window-previews', async (_event, ids: number[]) => {

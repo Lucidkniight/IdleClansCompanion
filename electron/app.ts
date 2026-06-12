@@ -201,6 +201,7 @@ ipcMain.handle('focus-window', (_event: any, id: number | null) => {
 
     if (id !== null) {
       snapActiveWindow(true);
+      setTimeout(() => { if (activeGameId === id) snapActiveWindow(false); }, 150);
     }
   } catch (e) {
     console.error(e);

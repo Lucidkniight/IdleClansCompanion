@@ -132,8 +132,8 @@
     const q = monsterSearch.trim().toLowerCase();
     return $allMonsters
       .filter(m => !q || formatMonsterName(m.name).toLowerCase().includes(q))
-      .sort((a, b) => a.health - b.health)
-      .slice(0, 60);
+      .sort((a, b) => (a.isBoss === b.isBoss ? a.health - b.health : a.isBoss ? 1 : -1))
+      .slice(0, q ? 200 : 80);
   })();
 
   function getMonsterStyle(m: Monster): string {

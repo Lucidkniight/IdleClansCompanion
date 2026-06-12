@@ -6,7 +6,6 @@
 import { onMount, onDestroy } from 'svelte';
 import {
   type PlayerProfile, type ClientCard,
-  xpToLevel,
   clients, activeId, previews, updateReady, apiError, apiErrorLog,
   scan, focusClient, refreshPreviews, loadGameConfig, refreshPrices,
   toolNavigation,
@@ -159,11 +158,6 @@ let previewInterval: ReturnType<typeof setInterval>;
 let priceInterval: ReturnType<typeof setInterval>;
 
 // ── Client tab ────────────────────────────────────────────────────────────────
-function getTotalLevel(profile: PlayerProfile): number {
-  if (!profile.skillExperiences) return 0;
-  return Object.values(profile.skillExperiences).reduce((sum, xp) => sum + xpToLevel(xp), 0);
-}
-
 function getOnlineStatus(profile: PlayerProfile): { online: boolean } {
   return { online: !!profile.activeServerId };
 }
@@ -171,6 +165,40 @@ function getOnlineStatus(profile: PlayerProfile): { online: boolean } {
 async function focus(client: ClientCard) {
   const newId = $activeId === client.win.id ? null : client.win.id;
   await focusClient(newId);
+}
+
+// ── Client ordering ───────────────────────────────────────────────────────────
+const _ORDER_KEY = 'icc-client-order';
+let clientOrder: string[] = (() => {
+  try { return JSON.parse(localStorage.getItem(_ORDER_KEY) ?? '[]'); } catch { return []; }
+})();
+function saveClientOrder() {
+  try { localStorage.setItem(_ORDER_KEY, JSON.stringify(clientOrder)); } catch {}
+}
+$: orderedClients = (() => {
+  const named   = $clients.filter(c => c.playerName);
+  const unnamed = $clients.filter(c => !c.playerName);
+  const sorted  = [...named].sort((a, b) => {
+    const ai = clientOrder.indexOf(a.playerName!);
+    const bi = clientOrder.indexOf(b.playerName!);
+    if (ai === -1 && bi === -1) return (a.playerName ?? '').localeCompare(b.playerName ?? '');
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+  return [...sorted, ...unnamed];
+})();
+$: namedClientCount = orderedClients.filter(c => c.playerName).length;
+function moveClient(client: ClientCard, dir: -1 | 1) {
+  const named = orderedClients.filter(c => c.playerName);
+  const idx   = named.findIndex(c => c.playerName === client.playerName);
+  if (idx === -1) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= named.length) return;
+  const names = named.map(c => c.playerName!);
+  [names[idx], names[newIdx]] = [names[newIdx], names[idx]];
+  clientOrder = names;
+  saveClientOrder();
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -343,69 +371,80 @@ onDestroy(() => {
         </div>
       {:else}
         <div class="cards">
-          {#each $clients as client (client.win.id)}
-            <button
-              class="card"
-              class:active={client.win.id === $activeId}
-              on:click={() => focus(client)}
-            >
-              {#if !client.playerName}
-                <div class="card-top">
-                  <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
-                  <div class="card-info">
-                    <span class="card-name muted">Not logged in</span>
-                    <span class="card-clan">Idle Clans</span>
+          {#each orderedClients as client, i (client.win.id)}
+            <div class="card-outer">
+              <button
+                class="card"
+                class:active={client.win.id === $activeId}
+                on:click={() => focus(client)}
+              >
+                {#if !client.playerName}
+                  <div class="card-top">
+                    <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
+                    <div class="card-info">
+                      <span class="card-name muted">Not logged in</span>
+                      <span class="card-clan">Idle Clans</span>
+                    </div>
+                    <div class="status-dot offline"></div>
                   </div>
-                  <div class="status-dot offline"></div>
-                </div>
 
-              {:else if client.loading}
-                <div class="card-top">
-                  <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
-                  <div class="card-info">
-                    <span class="card-name">{client.playerName}</span>
-                    <span class="card-clan loading-text">Loading...</span>
+                {:else if client.loading}
+                  <div class="card-top">
+                    <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
+                    <div class="card-info">
+                      <span class="card-name">{client.playerName}</span>
+                      <span class="card-clan loading-text">Loading...</span>
+                    </div>
+                    <div class="status-dot offline"></div>
                   </div>
-                  <div class="status-dot offline"></div>
-                </div>
 
-              {:else if client.error || !client.profile}
-                <div class="card-top">
-                  <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
-                  <div class="card-info">
-                    <span class="card-name">{client.playerName}</span>
-                    <span class="card-clan error-text">Could not load profile</span>
+                {:else if client.error || !client.profile}
+                  <div class="card-top">
+                    <div class="avatar ghost"><img class="avatar-logo" src="./logos/Default.png" alt="" /></div>
+                    <div class="card-info">
+                      <span class="card-name">{client.playerName}</span>
+                      <span class="card-clan error-text">Could not load profile</span>
+                    </div>
+                    <div class="status-dot offline"></div>
                   </div>
-                  <div class="status-dot offline"></div>
-                </div>
-                <div class="card-preview">
-                  {#if $previews[client.win.id]}
-                    <img src={$previews[client.win.id]} alt={client.playerName} />
-                  {:else}
-                    <div class="preview-placeholder">{settingPreviewFps === 0 ? 'Previews disabled' : 'Loading..'}</div>
-                  {/if}
-                </div>
+                  <div class="card-preview">
+                    {#if $previews[client.win.id]}
+                      <img src={$previews[client.win.id]} alt={client.playerName} />
+                    {:else}
+                      <div class="preview-placeholder">{settingPreviewFps === 0 ? 'Previews disabled' : 'Loading..'}</div>
+                    {/if}
+                  </div>
 
-              {:else}
-                {@const status = getOnlineStatus(client.profile)}
-                {@const totalLevel = getTotalLevel(client.profile)}
-                <div class="card-top">
-                  <div class="avatar"><img class="avatar-logo" src={getModeLogo(client.profile.gameMode)} alt="" /></div>
-                  <div class="card-info">
-                    <span class="card-name">{client.playerName}</span>
-                    <span class="card-clan">{client.profile.guildName ?? 'No clan'}</span>
+                {:else}
+                  {@const status = getOnlineStatus(client.profile)}
+                  <div class="card-top">
+                    <div class="avatar"><img class="avatar-logo" src={getModeLogo(client.profile.gameMode)} alt="" /></div>
+                    <div class="card-info">
+                      <span class="card-name">{client.playerName}</span>
+                      <span class="card-clan">{client.profile.guildName ?? 'No clan'}</span>
+                    </div>
+                    <div class="status-dot" class:offline={!status.online}></div>
                   </div>
-                  <div class="status-dot" class:offline={!status.online}></div>
-                </div>
-                <div class="card-preview">
-                  {#if $previews[client.win.id]}
-                    <img src={$previews[client.win.id]} alt={client.playerName} />
-                  {:else}
-                    <div class="preview-placeholder">{settingPreviewFps === 0 ? 'Previews disabled' : 'Loading..'}</div>
-                  {/if}
+                  <div class="card-preview">
+                    {#if $previews[client.win.id]}
+                      <img src={$previews[client.win.id]} alt={client.playerName} />
+                    {:else}
+                      <div class="preview-placeholder">{settingPreviewFps === 0 ? 'Previews disabled' : 'Loading..'}</div>
+                    {/if}
+                  </div>
+                {/if}
+              </button>
+              {#if client.playerName}
+                <div class="card-arrows">
+                  <button class="arrow-btn" aria-label="Move up" on:click={() => moveClient(client, -1)} disabled={i === 0}>
+                    <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,7 5,3 8,7"/></svg>
+                  </button>
+                  <button class="arrow-btn" aria-label="Move down" on:click={() => moveClient(client, 1)} disabled={i >= namedClientCount - 1}>
+                    <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,3 5,7 8,3"/></svg>
+                  </button>
                 </div>
               {/if}
-            </button>
+            </div>
           {/each}
         </div>
       {/if}
@@ -878,6 +917,27 @@ onDestroy(() => {
   .empty span { font-size: 11px; color: var(--text-dim); }
 
   .cards { display: flex; flex-direction: column; gap: 8px; }
+
+  .card-outer { position: relative; }
+
+  .card-arrows {
+    position: absolute; top: 7px; right: 7px;
+    display: flex; flex-direction: column; gap: 2px;
+    opacity: 0; transition: opacity 0.15s; z-index: 1;
+  }
+  .card-outer:hover .card-arrows { opacity: 1; }
+
+  .arrow-btn {
+    background: var(--bg-deep); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--text-faint);
+    font-size: 9px; line-height: 1; padding: 0;
+    width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: color 0.1s, border-color 0.1s;
+  }
+  .arrow-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-md); }
+  .arrow-btn:disabled { opacity: 0.25; cursor: default; }
+
   .card {
     width: 100%; background: var(--bg-card); border: 1px solid var(--border);
     border-radius: 8px; padding: 10px; cursor: pointer; text-align: left;

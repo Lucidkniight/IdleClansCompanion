@@ -439,7 +439,7 @@ export async function loadGameConfig() {
       if (!groups) continue;
       for (const group of groups) {
         for (const t of group.Items) {
-          if (t.Disabled || t.Hidden || !t.EnemyHealth) continue;
+          if (t.Disabled || !t.EnemyHealth) continue;
           monsters.push({
             name: t.Name,
             attackLevel: t.EnemyRigourLevel ?? 0,

@@ -161,11 +161,12 @@ function formatOffline(h: number): string {
   return r > 0 ? `${d}d ${r}h ago` : `${d}d ago`;
 }
 
-function modeLabel(mode: string | null): string | null {
-  if (!mode || mode === 'Default' || mode === 'notselected') return null;
-  if (mode === 'GroupIronman')   return 'GIM';
-  if (mode === 'UltimateIronman') return 'UIM';
-  return mode;
+function getModeLogo(mode: string | null): string {
+  const m = mode?.toLowerCase() ?? '';
+  if (m === 'ironman' || m === 'ultimateironman') return './logos/Ironman.png';
+  if (m === 'groupironmanprestige') return './logos/GroupIronmanPrestige.png';
+  if (m === 'groupironman') return './logos/GroupIronman.png';
+  return './logos/Default.png';
 }
 
 async function lookup() {
@@ -286,13 +287,10 @@ $: displayRecent = (() => {
 
   <!-- Profile header -->
   <div class="profile-card">
-    <div class="avatar">{(profile.username ?? '?')[0].toUpperCase()}</div>
+    <div class="avatar"><img class="avatar-logo" src={getModeLogo(profile.gameMode)} alt="" /></div>
     <div class="profile-info">
       <div class="name-row">
         <span class="profile-name">{profile.username}</span>
-        {#if modeLabel(profile.gameMode)}
-          <span class="mode-badge">{modeLabel(profile.gameMode)}</span>
-        {/if}
       </div>
       <span class="profile-clan">{profile.guildName ?? 'No clan'}</span>
     </div>
@@ -458,11 +456,10 @@ $: displayRecent = (() => {
     background: linear-gradient(135deg, var(--border), var(--bg-raised));
     border: 1px solid var(--border);
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Cinzel', serif;
-    font-size: 15px; font-weight: 600;
-    color: var(--accent);
     flex-shrink: 0;
   }
+
+  .avatar-logo { width: 22px; height: 22px; object-fit: contain; }
 
   .profile-info {
     flex: 1;
@@ -485,19 +482,6 @@ $: displayRecent = (() => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .mode-badge {
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    background: var(--accent-lo);
-    color: var(--accent);
-    border: 1px solid var(--accent-md);
-    border-radius: 3px;
-    padding: 1px 4px;
-    white-space: nowrap;
-    flex-shrink: 0;
   }
 
   .profile-clan {

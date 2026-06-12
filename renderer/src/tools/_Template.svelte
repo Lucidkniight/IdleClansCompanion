@@ -11,13 +11,17 @@
   This block runs at build time. Export toolMeta to register the tool.
   name  — display name shown in the Tools list and the section header
   desc  — short description shown under the name in the Tools list (also searched)
-  icon  — emoji shown next to the name in the list
+  icon  — emoji OR image path shown next to the name in the list
+          · emoji:  icon: '🔧'
+          · image:  icon: './skilltaskicons/MyIcon.png'
+                         './itemicons/my_item.png'
+          Place new image files in renderer/public 
 -->
 <script context="module" lang="ts">
   export const toolMeta = {
     name: 'My Tool',
     desc: 'A short description of what this tool does',
-    icon: '🔧',
+    icon: '🔧',  // or e.g. './skilltaskicons/Combat.png'
   };
 </script>
 
@@ -38,10 +42,18 @@
   │                  │                            │ highestBuy} by item id │
   │ profitTasks      │ Task[]                     │ All skill tasks        │
   │ profitSkills     │ string[]                   │ Sorted skill names     │
+  │ allEquipment     │ EquipmentItem[]            │ All equipment items    │
+  │                  │                            │ (enchanted variants    │
+  │                  │                            │  excluded)             │
+  │ allMonsters      │ Monster[]                  │ All combat enemies and │
+  │                  │                            │ bosses                 │
+  │ enchantedToBase  │ Record<number, number>     │ Enchanted item ID →    │
+  │                  │                            │ base item ID           │
   ├──────────────────┴────────────────────────────┴────────────────────────┤
-  │ All four stores are empty until loadGameConfig() is called.            │
+  │ All stores are empty until loadGameConfig() is called.                 │
   │ Import types for TypeScript:  import { type Task, type MarketItem,     │
-  │   type PriceData, type TaskCost } from '../lib/store'                  │
+  │   type PriceData, type TaskCost, type EquipmentItem,                   │
+  │   type Monster } from '../lib/store'                                   │
   ├────────────────────────────────────────────────────────────────────────┤
   │ UTILITY FUNCTIONS  ·  import { ... } from '../lib/store'               │
   ├──────────────────────┬──────────┬──────────────────────────────────────┤
@@ -58,9 +70,8 @@
   ├──────────────────────┴──────────┴──────────────────────────────────────┤
   │ DATA LOADING  ·  import { loadGameConfig } from '../lib/store'         │
   │                                                                        │
-  │  loadGameConfig()  Populates allItems, priceCache, profitTasks, and    │
-  │                    profitSkills. No-ops if already loaded. Call in     │
-  │                    onMount for any tool that uses those stores.        │
+  │  loadGameConfig()  Populates stores, No-ops if already loaded. Call in │
+  │                    onMount for any tool that uses stores.              │
   │                                                                        │
   │    onMount(async () => { await loadGameConfig(); });                   │
   ├────────────────────────────────────────────────────────────────────────┤
@@ -76,7 +87,7 @@
   │                                                                        │
   │  Receiving  ·  import { createNavListener } from '../lib/store'        │
   │                                                                        │
-  │    Call createNavListener with this tool's exact name. It returns a   │
+  │    Call createNavListener with this tool's exact name. It returns a    │
   │    readable store that emits the param string each time another tool   │
   │    navigates here, and null at all other times. Each navigation fires  │
   │    exactly once even if the component was already mounted.             │
@@ -95,7 +106,7 @@
   let message = 'Hello from My Tool!';
 
   onMount(async () => {
-    // If your tool uses profitTasks / priceCache / allItems / profitSkills:
+    // If your tool uses stores:
     // await loadGameConfig();
   });
 </script>

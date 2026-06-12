@@ -10,6 +10,7 @@ import {
   scan, focusClient, refreshPreviews, loadGameConfig, refreshPrices,
   toolNavigation,
 } from './lib/store';
+import { initAnalytics, setOptOut, track } from './lib/analytics';
 
 // ── Tool discovery ────────────────────────────────────────────────────────────
 interface ToolMeta {
@@ -36,6 +37,7 @@ function openTool(tool: ToolModule) {
   if (!mountedTools.some(t => t.toolMeta.name === tool.toolMeta.name)) {
     mountedTools = [...mountedTools, tool];
   }
+  track('tool_opened', { tool: tool.toolMeta.name });
 }
 
 $: if ($toolNavigation && $toolNavigation.id !== _lastNavId) {
@@ -62,6 +64,44 @@ let activeTab: Tab = 'clients';
 let showSettings = false;
 let showApiDetails = false;
 let showWipeModal = false;
+
+// ── Feedback ──────────────────────────────────────────────────────────────────
+const FEEDBACK_FORM_URL      = 'https://docs.google.com/forms/d/e/1FAIpQLScbSYv3pOHLQ_gVwy2q4xqC4MbiKJZIxNrJ1al7wCsu_6Llcw/formResponse';
+const FEEDBACK_ENTRY_TYPE    = 'entry.34567192';
+const FEEDBACK_ENTRY_DESC    = 'entry.1538414375';
+const FEEDBACK_ENTRY_VERSION = 'entry.387633934';
+
+let showFeedbackModal = false;
+let feedbackType: 'Bug Report' | 'Suggestion' = 'Bug Report';
+let feedbackText = '';
+let feedbackState: 'idle' | 'submitting' | 'done' = 'idle';
+
+function openFeedback(type: 'Bug Report' | 'Suggestion') {
+  feedbackType = type;
+  feedbackText = '';
+  feedbackState = 'idle';
+  showFeedbackModal = true;
+}
+
+function autoGrow(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = Math.max(140, el.scrollHeight) + 'px';
+}
+
+async function submitFeedback() {
+  if (!feedbackText.trim()) return;
+  feedbackState = 'submitting';
+  const body = new URLSearchParams({
+    [FEEDBACK_ENTRY_TYPE]: feedbackType,
+    [FEEDBACK_ENTRY_DESC]: feedbackText.trim(),
+    [FEEDBACK_ENTRY_VERSION]: __APP_VERSION__,
+  });
+  try {
+    await fetch(FEEDBACK_FORM_URL, { method: 'POST', body, mode: 'no-cors' });
+  } catch {}
+  feedbackState = 'done';
+  track('feedback_submitted', { type: feedbackType });
+}
 
 function wipeData() {
   localStorage.clear();
@@ -123,7 +163,8 @@ function applyTheme(theme: Theme) {
 }
 
 const FPS_OPTIONS = [0, 0.1, 0.3, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-let settingAlwaysOnTop = localStorage.getItem('s-aot') === 'true';
+let settingAlwaysOnTop    = localStorage.getItem('s-aot') === 'true';
+let settingAnalyticsOptOut = localStorage.getItem('s-analytics-opt-out') === 'true';
 const _storedFps = parseFloat(localStorage.getItem('s-prev-fps') ?? '1');
 let settingPreviewFpsIdx = (() => { const i = FPS_OPTIONS.indexOf(_storedFps); return i !== -1 ? i : 4; })();
 let settingPreviewFps = FPS_OPTIONS[settingPreviewFpsIdx];
@@ -137,11 +178,31 @@ $: {
   (window as any).electronAPI.setAlwaysOnTop(settingAlwaysOnTop);
 }
 $: localStorage.setItem('s-api-debug', String(settingApiDebug));
+$: localStorage.setItem('s-analytics-opt-out', String(settingAnalyticsOptOut));
+
+function toggleAnalyticsOptOut() {
+  const newValue = !settingAnalyticsOptOut;
+  settingAnalyticsOptOut = newValue;
+  if (newValue) {
+    track('analytics_opted_out');
+    setOptOut(true);
+  } else {
+    setOptOut(false);       // re-enable capturing first
+    track('analytics_opted_in'); // then fire so PostHog can receive it
+  }
+}
+
+let _analyticsReady = false;
 
 $: {
   localStorage.setItem('s-theme', settingTheme);
   applyTheme(settingTheme);
 }
+
+function _onThemeChange(t: Theme) {
+  if (_analyticsReady) track('theme_changed', { theme: t });
+}
+$: _onThemeChange(settingTheme);
 
 $: {
   settingPreviewFps = FPS_OPTIONS[settingPreviewFpsIdx];
@@ -203,8 +264,19 @@ function moveClient(client: ClientCard, dir: -1 | 1) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMount(async () => {
+  initAnalytics(settingAnalyticsOptOut);
   await loadGameConfig();
   await scan();
+  track('app_started', {
+    version: __APP_VERSION__,
+    theme: settingTheme,
+  });
+  setTimeout(() => {
+    track('client_count_detected', {
+      client_count: $clients.filter(c => c.playerName).length,
+    });
+  }, 60_000);
+  _analyticsReady = true;
   refreshInterval = setInterval(scan, 10000);
   priceInterval  = setInterval(refreshPrices, 5 * 60 * 1000);
   (window as any).electronAPI.onUpdateReady(() => {
@@ -346,8 +418,26 @@ onDestroy(() => {
         </div>
       </div>
 
+      <div class="settings-group">
+        <div class="settings-group-label">Support</div>
+        <div class="settings-row">
+          <span class="settings-label">Report a bug</span>
+          <button class="feedback-btn" on:click={() => openFeedback('Bug Report')}>Report</button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Feedback & suggestions</span>
+          <button class="feedback-btn" on:click={() => openFeedback('Suggestion')}>Share</button>
+        </div>
+      </div>
+
       <div class="settings-group settings-group-danger">
-        <div class="settings-group-label">Danger Zone</div>
+        <div class="settings-group-label">Advanced</div>
+        <div class="settings-row">
+          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Disables anonymous usage analytics.\nNo personal data is ever collected.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Opt out of analytics</span>
+          <button class="toggle" class:on={settingAnalyticsOptOut} on:click={toggleAnalyticsOptOut} aria-label="Opt out of analytics">
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
         <div class="settings-row">
           <span class="settings-label">Wipe all app data</span>
           <button class="wipe-btn" on:click={() => showWipeModal = true}>Wipe</button>
@@ -511,6 +601,36 @@ onDestroy(() => {
         <button class="modal-cancel" on:click={() => showWipeModal = false}>Cancel</button>
         <button class="modal-wipe" on:click={wipeData}>Wipe</button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if showFeedbackModal}
+  <div class="modal-overlay" role="presentation" on:click={() => { if (feedbackState !== 'submitting') showFeedbackModal = false; }}>
+    <div class="modal" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+      {#if feedbackState === 'done'}
+        <div class="modal-title">Thanks!</div>
+        <p class="modal-body">Your {feedbackType === 'Bug Report' ? 'bug report' : 'feedback'} has been received.</p>
+        <div class="modal-actions">
+          <button class="modal-cancel" on:click={() => showFeedbackModal = false}>Close</button>
+        </div>
+      {:else}
+        <div class="modal-title">{feedbackType === 'Bug Report' ? 'Report a Bug' : 'Share Feedback'}</div>
+        <textarea
+          class="feedback-textarea"
+          placeholder={feedbackType === 'Bug Report' ? 'Describe the issue…' : 'Share your suggestions or thoughts…'}
+          bind:value={feedbackText}
+          maxlength={1000}
+          disabled={feedbackState === 'submitting'}
+          on:input={(e) => autoGrow(e.currentTarget as HTMLTextAreaElement)}
+        ></textarea>
+        <div class="modal-actions">
+          <button class="modal-cancel" on:click={() => showFeedbackModal = false} disabled={feedbackState === 'submitting'}>Cancel</button>
+          <button class="modal-submit" on:click={submitFeedback} disabled={!feedbackText.trim() || feedbackState === 'submitting'}>
+            {feedbackState === 'submitting' ? 'Sending…' : 'Submit'}
+          </button>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -1038,6 +1158,32 @@ onDestroy(() => {
     cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
   }
   .modal-wipe:hover { background: rgba(224, 85, 85, 0.28); }
+
+  .feedback-btn {
+    background: none; border: 1px solid var(--accent-md); color: var(--accent);
+    font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 4px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
+  }
+  .feedback-btn:hover { background: var(--accent-lo); border-color: var(--accent-hi); }
+
+  .feedback-textarea {
+    width: 100%; min-height: 140px; max-height: calc(80vh - 110px); overflow-y: auto; resize: none;
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 11px;
+    padding: 8px 10px; font-family: 'Nunito', sans-serif;
+    outline: none; line-height: 1.5;
+  }
+  .feedback-textarea:focus { border-color: var(--accent-md); }
+  .feedback-textarea::placeholder { color: var(--text-faint); }
+  .feedback-textarea:disabled { opacity: 0.6; }
+
+  .modal-submit {
+    background: var(--accent-lo); border: 1px solid var(--accent-md); color: var(--accent);
+    font-size: 11px; font-weight: 700; padding: 5px 14px; border-radius: 5px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
+  }
+  .modal-submit:hover:not(:disabled) { background: var(--accent-md); border-color: var(--accent-hi); }
+  .modal-submit:disabled { opacity: 0.5; cursor: default; }
 
   .tip-label { cursor: help; }
   .tooltip {

@@ -8,6 +8,7 @@
 
 <script lang="ts">
 import { allItems, priceCache, formatItemName, formatGold, createNavListener, apiFetch, type MarketItem } from '../lib/store';
+import { track } from '../lib/analytics';
 
 interface ComprehensivePrice {
   itemId: number;
@@ -140,6 +141,7 @@ function fmtTime(ts: string): string {
 }
 
 function openWiki() {
+  track('external_link_opened', { source: 'market_tool' });
   const title = selectedItemName.charAt(0).toUpperCase() + selectedItemName.slice(1);
   (window as any).electronAPI.openExternal(WIKI_BASE + encodeURIComponent(title));
 }

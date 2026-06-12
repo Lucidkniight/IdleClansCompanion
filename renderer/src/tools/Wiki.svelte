@@ -7,6 +7,8 @@
 </script>
 
 <script lang="ts">
+  import { track } from '../lib/analytics';
+
   const WIKI_API = 'https://idleclans.wiki/w/api.php';
   const WIKI_BASE = 'https://idleclans.wiki/w/';
 
@@ -66,6 +68,7 @@
   }
 
   function open(url: string) {
+    track('external_link_opened', { source: 'wiki_tool' });
     (window as any).electronAPI.openExternal(url);
   }
 

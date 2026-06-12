@@ -100,6 +100,21 @@ The app checks for updates automatically and notifies you with a banner when a n
 
 ---
 
+## Analytics
+
+Idle Clans Companion collects anonymous usage data to help improve the app. No personal data is ever collected — no player names, account details, or search history.
+
+The following is collected:
+- App launch (version number)
+- Which tools are opened
+- Number of game clients detected
+- Theme changes
+- External link opens — only a count and which tool triggered it (e.g. Wiki), never the URL or page visited
+
+You can opt out at any time via **Settings → Advanced → Opt out of analytics**.
+
+---
+
 ## Disclaimer
 
 This project is a fan-made tool and is not affiliated with, endorsed by, or connected to the Idle Clans development team. All game data, item names, and game mechanics are the property of their respective owners.

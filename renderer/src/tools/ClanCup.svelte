@@ -9,6 +9,7 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { formatTime, formatGold, navigate } from '../lib/store';
+import DevPanel from '../lib/DevPanel.svelte';
 
 const API = 'https://query.idleclans.com';
 
@@ -190,6 +191,17 @@ onMount(loadLeaderboard);
 </script>
 
 <svelte:window on:click={() => (catDropOpen = false)} />
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Overall LB rows</span><span class="dev-val">{overallLb.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Clan standings</span><span class="dev-val">{standings.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Active category</span><span class="dev-val">{selectedLabel}</span></div>
+  <div class="dev-row"><span class="dev-key">Lookup mode</span><span class="dev-val">{isLookup ? 'clan search' : 'global lb'}</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">LB API</span><span class="dev-val">/ClanCup/leaderboard/Default/totalPoints</span></div>
+  <div class="dev-row"><span class="dev-key">Top clans API</span><span class="dev-val">/ClanCup/top-clans/current</span></div>
+  <div class="dev-row"><span class="dev-key">Standings API</span><span class="dev-val">/ClanCup/standings/{'{name}'}</span></div>
+</DevPanel>
 
 <div class="cup-search-wrap">
   <input

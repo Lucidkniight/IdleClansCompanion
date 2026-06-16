@@ -9,6 +9,7 @@
 <script lang="ts">
 import { formatGold, xpToLevel, fetchProfile, navigate, createNavListener, clients, type ClientCard } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
+import DevPanel from '../lib/DevPanel.svelte';
 
 interface CupStanding {
   objective: string;
@@ -225,6 +226,16 @@ function fillFromClient(client: ClientCard) {
   fetchClan();
 }
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Lifetime players</span><span class="dev-val">{lifetimePlayers.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Contributed players</span><span class="dev-val">{contributedPlayers.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Cup standings</span><span class="dev-val">{cupStandings.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Clan</span><span class="dev-val">{clanName || '—'}</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Profile API</span><span class="dev-val">/ClanProfile/{'{name}'}</span></div>
+  <div class="dev-row"><span class="dev-key">Cup API</span><span class="dev-val">/ClanCup/standings/{'{name}'}</span></div>
+</DevPanel>
 
 <div class="clan-tool">
   <div class="clan-input-wrap">

@@ -53,6 +53,26 @@ export interface PriceData {
   highestBuy: number;
 }
 
+export interface PriceAlert {
+  id: string;
+  itemId: number;
+  itemName: string;
+  field: 'sell' | 'buy';
+  direction: 'below' | 'above';
+  threshold: number;
+}
+
+export interface TriggeredAlert {
+  id: string;
+  itemId: number;
+  itemName: string;
+  field: 'sell' | 'buy';
+  direction: 'below' | 'above';
+  threshold: number;
+  triggeredPrice: number;
+  triggeredAt: string;
+}
+
 export interface EquipmentItem {
   id: number;
   name: string;
@@ -75,6 +95,12 @@ export interface EquipmentItem {
   skillBoostPct: number;
 }
 
+export interface MonsterLootEntry {
+  itemId: number;
+  dropRate: number;
+  avgAmount: number;
+}
+
 export interface Monster {
   name: string;
   attackLevel: number;
@@ -91,6 +117,7 @@ export interface Monster {
   weaknessType: number | null;
   isBoss: boolean;
   bossType: number;
+  loot: MonsterLootEntry[];
 }
 
 export interface ApiErrorEntry {
@@ -154,6 +181,8 @@ export function formatTime(seconds: number): string {
 export { GATHERING_SKILLS };
 
 // ── Writable stores ───────────────────────────────────────────────────────────
+export const devMode = writable<boolean>(localStorage.getItem('s-dev-mode') === 'true');
+
 export const clients      = writable<ClientCard[]>([]);
 export const activeId     = writable<number | null>(null);
 export const previews     = writable<Record<number, string>>({});
@@ -162,12 +191,44 @@ export const updateReady  = writable<boolean>(false);
 export const apiError     = writable<boolean>(false);
 export const apiErrorLog  = writable<ApiErrorEntry[]>([]);
 export const allItems     = writable<MarketItem[]>([]);
-export const priceCache   = writable<Record<number, PriceData>>({});
+export const priceCache        = writable<Record<number, PriceData>>({});
+export const lastPriceRefresh  = writable<Date | null>(null);
+export const priceRefreshCount = writable<number>(0);
 export const profitTasks  = writable<Task[]>([]);
 export const profitSkills = writable<string[]>([]);
 export const allEquipment    = writable<EquipmentItem[]>([]);
 export const allMonsters     = writable<Monster[]>([]);
 export const enchantedToBase = writable<Record<number, number>>({});
+
+const _ALERTS_KEY = 'icc-price-alerts';
+export const priceAlerts = writable<PriceAlert[]>((() => {
+  try { return JSON.parse(localStorage.getItem(_ALERTS_KEY) ?? '[]'); } catch { return []; }
+})());
+priceAlerts.subscribe(v => { try { localStorage.setItem(_ALERTS_KEY, JSON.stringify(v)); } catch {} });
+
+export function addPriceAlert(alert: Omit<PriceAlert, 'id'>): void {
+  priceAlerts.update(list => {
+    // Replace only if same item + same field + same direction (avoids exact-duplicate conditions)
+    const filtered = list.filter(a => !(a.itemId === alert.itemId && a.field === alert.field && a.direction === alert.direction));
+    return [...filtered, { ...alert, id: String(Date.now()) }];
+  });
+  // Check immediately so alerts that are already true fire without waiting for the next refresh cycle
+  _checkPriceAlerts(get(priceCache));
+}
+
+export function removePriceAlert(id: string): void {
+  priceAlerts.update(list => list.filter(a => a.id !== id));
+}
+
+const _TRIGGERED_KEY = 'icc-triggered-alerts';
+export const triggeredAlerts = writable<TriggeredAlert[]>((() => {
+  try { return JSON.parse(localStorage.getItem(_TRIGGERED_KEY) ?? '[]'); } catch { return []; }
+})());
+triggeredAlerts.subscribe(v => { try { localStorage.setItem(_TRIGGERED_KEY, JSON.stringify(v)); } catch {} });
+
+export function dismissTriggeredAlert(id: string): void {
+  triggeredAlerts.update(list => list.filter(a => a.id !== id));
+}
 
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   let r: Response;
@@ -324,6 +385,53 @@ export async function refreshPreviews() {
   }
 }
 
+function _playAlertSound(): void {
+  try {
+    const vol = parseInt(localStorage.getItem('s-alert-volume') ?? '50') / 100;
+    const snd = localStorage.getItem('s-alert-sound') ?? 'mixkit-software-interface-start-2574.wav';
+    if (snd !== 'none') {
+      const audio = new Audio(`./sounds/${snd}`);
+      audio.volume = Math.max(0, Math.min(1, vol));
+      audio.play().catch(() => {});
+    }
+  } catch {}
+}
+
+export function checkPriceAlerts(): void {
+  _checkPriceAlerts(get(priceCache));
+}
+
+function _checkPriceAlerts(cache: Record<number, PriceData>): void {
+  const alerts = get(priceAlerts);
+  if (alerts.length === 0) return;
+  const triggered: string[] = [];
+  for (const alert of alerts) {
+    const data = cache[alert.itemId];
+    if (!data) continue;
+    const price = alert.field === 'sell' ? data.lowestSell : data.highestBuy;
+    if (price === 0) continue;
+    const hit = alert.direction === 'below' ? price < alert.threshold : price > alert.threshold;
+    if (!hit) continue;
+    const fieldLabel = alert.field === 'sell' ? 'Sell' : 'Buy';
+    const dirLabel = alert.direction === 'below' ? 'dropped below' : 'risen above';
+    _playAlertSound();
+    triggeredAlerts.update(list => [...list, {
+      id: `t-${Date.now()}-${alert.id}`,
+      itemId: alert.itemId,
+      itemName: alert.itemName,
+      field: alert.field,
+      direction: alert.direction,
+      threshold: alert.threshold,
+      triggeredPrice: price,
+      triggeredAt: new Date().toISOString(),
+    }]);
+    triggered.push(alert.id);
+  }
+  if (triggered.length > 0) {
+    priceAlerts.update(list => list.filter(a => !triggered.includes(a.id)));
+  }
+}
+
 export async function refreshPrices() {
   try {
     const res = await apiFetch(`${API_BASE}/api/PlayerMarket/items/prices/latest?includeAveragePrice=false`);
@@ -336,7 +444,29 @@ export async function refreshPrices() {
         highestBuy: p.highestBuyPrice ?? 0,
       };
     }
+
+    // Bulk endpoint is server-side cached (~5 min). For items with active alerts,
+    // fetch the comprehensive endpoint (live order book) so alerts fire within 60s.
+    const alertItemIds = [...new Set(get(priceAlerts).map(a => a.itemId))];
+    if (alertItemIds.length > 0) {
+      await Promise.all(alertItemIds.map(async (id) => {
+        try {
+          const r = await fetch(`${API_BASE}/api/PlayerMarket/items/prices/latest/comprehensive/${id}`);
+          if (r.ok) {
+            const d = await r.json();
+            cache[id] = {
+              lowestSell: d.lowestSellPricesWithVolume?.[0]?.key ?? cache[id]?.lowestSell ?? 0,
+              highestBuy: d.highestBuyPricesWithVolume?.[0]?.key ?? cache[id]?.highestBuy ?? 0,
+            };
+          }
+        } catch {}
+      }));
+    }
+
     priceCache.set(cache);
+    lastPriceRefresh.set(new Date());
+    priceRefreshCount.update(n => n + 1);
+    _checkPriceAlerts(cache);
   } catch (e) {
     console.error('Failed to refresh prices:', e);
   }
@@ -440,6 +570,15 @@ export async function loadGameConfig() {
       for (const group of groups) {
         for (const t of group.Items) {
           if (t.Disabled || !t.EnemyHealth) continue;
+          const rawLoot: any[] = t.Loot ?? [];
+          const totalWeight = rawLoot.reduce((s: number, l: any) => s + (l.Weight ?? 0), 0);
+          const loot: MonsterLootEntry[] = totalWeight > 0
+            ? rawLoot.map((l: any) => ({
+                itemId: l.ItemId,
+                dropRate: l.Weight / totalWeight,
+                avgAmount: Math.max(1, ((l.ItemAmountMin ?? 0) + (l.ItemAmountMax ?? 0)) / 2),
+              }))
+            : [];
           monsters.push({
             name: t.Name,
             attackLevel: t.EnemyRigourLevel ?? 0,
@@ -456,6 +595,7 @@ export async function loadGameConfig() {
             weaknessType: t.AttackStyleWeakness ?? null,
             isBoss: t.IsBoss ?? false,
             bossType: t.BossType ?? 0,
+            loot,
           });
         }
       }

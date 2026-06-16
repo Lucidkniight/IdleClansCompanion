@@ -8,6 +8,7 @@
 
 <script lang="ts">
 import { xpToLevel, XP_TABLE, formatGold, formatItemName, createNavListener, clients } from '../lib/store';
+import DevPanel from '../lib/DevPanel.svelte';
 
 interface RawProfile {
   username: string | null;
@@ -212,6 +213,15 @@ $: displayRecent = (() => {
   return recentPlayers.filter(n => !taken.has(n.toLowerCase()));
 })();
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Recent cache</span><span class="dev-val">{recentPlayers.length} players · icc-lookup-recent</span></div>
+  <div class="dev-row"><span class="dev-key">Clan members</span><span class="dev-val">{clanMembers.length} loaded</span></div>
+  <div class="dev-row"><span class="dev-key">Profile loaded</span><span class="dev-val">{profile ? (profile.username ?? '—') : 'none'}</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Profile API</span><span class="dev-val">/PlayerProfile/{'{name}'}</span></div>
+  <div class="dev-row"><span class="dev-key">Clan API</span><span class="dev-val">/ClanProfile/{'{name}'}/members</span></div>
+</DevPanel>
 
 <div class="search-wrap">
   <div class="input-wrap">

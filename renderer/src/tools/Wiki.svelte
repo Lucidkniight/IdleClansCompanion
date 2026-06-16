@@ -8,6 +8,7 @@
 
 <script lang="ts">
   import { track } from '../lib/analytics';
+  import DevPanel from '../lib/DevPanel.svelte';
 
   const WIKI_API = 'https://idleclans.wiki/w/api.php';
   const WIKI_BASE = 'https://idleclans.wiki/w/';
@@ -80,6 +81,15 @@
     }
   }
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Results</span><span class="dev-val">{results.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Debounce</span><span class="dev-val">350ms</span></div>
+  <div class="dev-row"><span class="dev-key">Query</span><span class="dev-val">{query || '—'}</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Search API</span><span class="dev-val">idleclans.wiki/w/api.php?action=opensearch</span></div>
+  <div class="dev-row"><span class="dev-key">Text API</span><span class="dev-val">idleclans.wiki/w/api.php?action=query&list=search</span></div>
+</DevPanel>
 
 <p class="wiki-hint">Use full words for best results</p>
 <div class="wiki-search-row">

@@ -23,7 +23,7 @@ async function main() {
       preload: join(__dirname, "preload.js"),
       contextIsolation: true,
     },
-    
+
   });
   mainWindow.on('move', () => snapActiveWindow(false));
   mainWindow.on('resize', () => {

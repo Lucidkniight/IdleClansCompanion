@@ -5,10 +5,11 @@
 <script lang="ts">
 import { onMount, onDestroy } from 'svelte';
 import {
-  type PlayerProfile, type ClientCard,
+  type PlayerProfile, type ClientCard, type TriggeredAlert,
   clients, activeId, previews, updateReady, apiError, apiErrorLog,
   scan, focusClient, refreshPreviews, loadGameConfig, refreshPrices,
-  toolNavigation,
+  toolNavigation, navigate, triggeredAlerts, dismissTriggeredAlert,
+  formatItemName, formatGold, devMode,
 } from './lib/store';
 import { initAnalytics, setOptOut, track } from './lib/analytics';
 
@@ -47,6 +48,7 @@ $: if ($toolNavigation && $toolNavigation.id !== _lastNavId) {
   if (target) {
     activeTab = 'tools';
     showSettings = false;
+    showAlerts = false;
     openTool(target);
   }
 }
@@ -62,6 +64,7 @@ $: filteredTools = toolSearch.trim() === ''
 type Tab = 'clients' | 'tools';
 let activeTab: Tab = 'clients';
 let showSettings = false;
+let showAlerts = false;
 let showApiDetails = false;
 let showWipeModal = false;
 
@@ -140,6 +143,66 @@ function statusLabel(status: number | null): string {
   };
   return labels[status] ?? `HTTP ${status}`;
 }
+
+// ── Alert settings ────────────────────────────────────────────────────────────
+let settingAlertVolume = parseInt(localStorage.getItem('s-alert-volume') ?? '50');
+let settingAlertSound  = localStorage.getItem('s-alert-sound') ?? 'mixkit-software-interface-start-2574.wav';
+
+const ALERT_SOUNDS: { label: string; value: string }[] = [
+  { label: 'None',             value: 'none' },
+  { label: 'Access Allowed',   value: 'mixkit-access-allowed-tone-2869.wav' },
+  { label: 'Arabian Harp',     value: 'mixkit-arabian-mystery-harp-notification-2489.wav' },
+  { label: 'Arcade Magic',     value: 'mixkit-arcade-magic-notification-2342.wav' },
+  { label: 'Bubble Pop',       value: 'mixkit-bubble-pop-up-alert-notification-2357.wav' },
+  { label: 'Clear Announce',   value: 'mixkit-clear-announce-tones-2861.wav' },
+  { label: 'Confirmation',     value: 'mixkit-confirmation-tone-2867.wav' },
+  { label: 'Correct Answer',   value: 'mixkit-correct-answer-reward-952.wav' },
+  { label: 'Doorbell',         value: 'mixkit-doorbell-tone-2864.wav' },
+  { label: 'Dry Pop',          value: 'mixkit-dry-pop-up-notification-alert-2356.wav' },
+  { label: 'Guitar Alert',     value: 'mixkit-guitar-notification-alert-2320.wav' },
+  { label: 'Interface Hint',   value: 'mixkit-interface-hint-notification-911.wav' },
+  { label: 'Interface Select', value: 'mixkit-interface-option-select-2573.wav' },
+  { label: 'Magic Marimba',    value: 'mixkit-magic-marimba-2820.wav' },
+  { label: 'Magic Ring',       value: 'mixkit-magic-notification-ring-2344.wav' },
+  { label: 'Musical Alert',    value: 'mixkit-musical-alert-notification-2309.wav' },
+  { label: 'Musical Reveal',   value: 'mixkit-musical-reveal-961.wav' },
+  { label: 'Positive',         value: 'mixkit-positive-notification-951.wav' },
+  { label: 'Sci-Fi Confirm',   value: 'mixkit-sci-fi-confirmation-914.wav' },
+  { label: 'Sci-Fi Reject',    value: 'mixkit-sci-fi-reject-notification-896.wav' },
+  { label: 'Interface Back',   value: 'mixkit-software-interface-back-2575.wav' },
+  { label: 'Interface Remove', value: 'mixkit-software-interface-remove-2576.wav' },
+  { label: 'Interface Start',  value: 'mixkit-software-interface-start-2574.wav' },
+  { label: 'Success Tone',     value: 'mixkit-success-software-tone-2865.wav' },
+  { label: 'Tile Reveal',      value: 'mixkit-tile-game-reveal-960.wav' },
+  { label: 'Uplifting Flute',  value: 'mixkit-uplifting-flute-notification-2317.wav' },
+];
+
+$: localStorage.setItem('s-alert-volume', String(settingAlertVolume));
+$: localStorage.setItem('s-alert-sound', settingAlertSound);
+
+function previewAlertSound() {
+  if (settingAlertSound === 'none') return;
+  try {
+    const audio = new Audio(`./sounds/${settingAlertSound}`);
+    audio.volume = settingAlertVolume / 100;
+    audio.play().catch(() => {});
+  } catch {}
+}
+
+function openAlertItem(alert: TriggeredAlert) {
+  showAlerts = false;
+  navigate('Market', String(alert.itemId));
+}
+
+// ── Dev mode ──────────────────────────────────────────────────────────────────
+let settingDevMode = localStorage.getItem('s-dev-mode') === 'true';
+
+function toggleDevMode() {
+  settingDevMode = !settingDevMode;
+  localStorage.setItem('s-dev-mode', String(settingDevMode));
+}
+
+$: devMode.set(settingDevMode);
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 const THEMES = ['dark', 'light', 'vaporwave', 'slate', 'forest', 'ocean', 'midnight', 'rose', 'ember'] as const;
@@ -278,7 +341,7 @@ onMount(async () => {
   }, 60_000);
   _analyticsReady = true;
   refreshInterval = setInterval(scan, 10000);
-  priceInterval  = setInterval(refreshPrices, 5 * 60 * 1000);
+  priceInterval  = setInterval(refreshPrices, 60 * 1000);
   (window as any).electronAPI.onUpdateReady(() => {
     updateReady.set(true);
   });
@@ -300,12 +363,25 @@ onDestroy(() => {
       </svg>
       <span class="logo-text">Idle Clans Companion</span>
     </div>
-    <button class="settings-btn" class:active={showSettings} on:click={() => showSettings = !showSettings} title="Settings">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-    </button>
+    <div class="header-btns">
+      <button class="header-btn" class:active={showAlerts} on:click={() => { showAlerts = !showAlerts; if (showAlerts) showSettings = false; }} title="Alerts">
+        <span class="bell-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          {#if $triggeredAlerts.length > 0}
+            <span class="alert-dot"></span>
+          {/if}
+        </span>
+      </button>
+      <button class="header-btn" class:active={showSettings} on:click={() => { showSettings = !showSettings; if (showSettings) showAlerts = false; }} title="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
   </div>
 
   {#if $updateReady}
@@ -355,7 +431,7 @@ onDestroy(() => {
     {/if}
   {/if}
 
-  {#if !showSettings}
+  {#if !showSettings && !showAlerts}
   <div class="tabs">
     <button class="tab" class:active={activeTab === 'clients'} on:click={() => activeTab = 'clients'}>
       Clients
@@ -378,12 +454,6 @@ onDestroy(() => {
         <div class="settings-row">
           <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Keeps the companion window above all other windows.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Always on top</span>
           <button class="toggle" class:on={settingAlwaysOnTop} on:click={() => settingAlwaysOnTop = !settingAlwaysOnTop}>
-            <span class="toggle-thumb" />
-          </button>
-        </div>
-        <div class="settings-row">
-          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Shows a banner when API requests fail.\nUseful for diagnosing connection issues.')} on:mousemove={moveTip} on:mouseleave={hideTip}>API debug mode</span>
-          <button class="toggle" class:on={settingApiDebug} on:click={() => settingApiDebug = !settingApiDebug}>
             <span class="toggle-thumb" />
           </button>
         </div>
@@ -419,6 +489,34 @@ onDestroy(() => {
       </div>
 
       <div class="settings-group">
+        <div class="settings-group-label">Alerts</div>
+        <div class="settings-row settings-row-col">
+          <div class="settings-row-top">
+            <span class="settings-label">Alert volume</span>
+            <span class="settings-value">{settingAlertVolume}%</span>
+          </div>
+          <input
+            class="settings-slider"
+            type="range"
+            min="0" max="100" step="1"
+            bind:value={settingAlertVolume}
+            style="--fill: {settingAlertVolume}%"
+          />
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Alert sound</span>
+          <div class="sound-select-row">
+            <select class="settings-select" bind:value={settingAlertSound}>
+              {#each ALERT_SOUNDS as snd}
+                <option value={snd.value}>{snd.label}</option>
+              {/each}
+            </select>
+            <button class="preview-sound-btn" on:click={previewAlertSound} disabled={settingAlertSound === 'none'} title="Preview sound">▶</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-group">
         <div class="settings-group-label">Support</div>
         <div class="settings-row">
           <span class="settings-label">Report a bug</span>
@@ -439,6 +537,18 @@ onDestroy(() => {
           </button>
         </div>
         <div class="settings-row">
+          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Shows a diagnostic panel at the top of every tool with API endpoints, cache sizes, storage keys, and live data. Intended for developers and debugging.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Dev mode</span>
+          <button class="toggle" class:on={settingDevMode} on:click={toggleDevMode} aria-label="Toggle dev mode">
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Shows a banner when API requests fail.\nUseful for diagnosing connection issues.')} on:mousemove={moveTip} on:mouseleave={hideTip}>API debug mode</span>
+          <button class="toggle" class:on={settingApiDebug} on:click={() => settingApiDebug = !settingApiDebug} aria-label="Toggle API debug mode">
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+        <div class="settings-row">
           <span class="settings-label">Wipe all app data</span>
           <button class="wipe-btn" on:click={() => showWipeModal = true}>Wipe</button>
         </div>
@@ -446,11 +556,40 @@ onDestroy(() => {
     </div>
     {/if}
 
+    <!-- ── Alerts panel ── -->
+    {#if showAlerts}
+    <div class="alerts-content">
+      <div class="section-header"><span>Alerts</span></div>
+      {#if $triggeredAlerts.length === 0}
+        <div class="alerts-empty">
+          <div class="alerts-empty-icon">🔔</div>
+          <p>No notifications</p>
+        </div>
+      {:else}
+        <div class="alerts-list-panel">
+          {#each $triggeredAlerts as alert (alert.id)}
+            <div class="alert-panel-row">
+              <button class="alert-panel-main" on:click={() => openAlertItem(alert)}>
+                <img class="alert-panel-icon" src="./itemicons/{alert.itemName}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
+                <div class="alert-panel-info">
+                  <span class="alert-panel-name">{formatItemName(alert.itemName)}</span>
+                  <span class="alert-panel-cond">{alert.field === 'sell' ? 'Sell' : 'Buy'} {alert.direction === 'below' ? '<' : '>'} {formatGold(alert.threshold)} — now {formatGold(alert.triggeredPrice)}</span>
+                </div>
+                <span class="alert-panel-tag">Market</span>
+              </button>
+              <button class="alert-panel-remove" on:click={() => dismissTriggeredAlert(alert.id)}>✕</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    {/if}
+
     <!-- ── Clients ── -->
-    <div class="clients-tab" class:tab-hidden={activeTab !== 'clients' || showSettings}>
+    <div class="clients-tab" class:tab-hidden={activeTab !== 'clients' || showSettings || showAlerts}>
       <div class="section-header">
         <span>Accounts</span>
-        <button class="scan-btn" on:click={scan} title="Rescan">↺</button>
+<button class="scan-btn" on:click={scan} title="Rescan">↺</button>
       </div>
 
       {#if $clients.length === 0}
@@ -541,7 +680,7 @@ onDestroy(() => {
     </div>
 
     <!-- ── Tools ── -->
-    <div class="tools-tab" class:tab-hidden={activeTab !== 'tools' || showSettings}>
+    <div class="tools-tab" class:tab-hidden={activeTab !== 'tools' || showSettings || showAlerts}>
       <div class="section-header">
         {#if activeTool}
           <button class="back-btn" on:click={() => activeTool = null}>← Back</button>
@@ -604,6 +743,7 @@ onDestroy(() => {
     </div>
   </div>
 {/if}
+
 
 {#if showFeedbackModal}
   <div class="modal-overlay" role="presentation" on:click={() => { if (feedbackState !== 'submitting') showFeedbackModal = false; }}>
@@ -858,19 +998,29 @@ onDestroy(() => {
     background: var(--bg-base); overflow: hidden;
   }
 
-  .header { padding: 16px 14px 12px; border-bottom: 1px solid var(--divider); display: flex; align-items: center; justify-content: space-between; }
-  .logo { display: flex; align-items: center; gap: 7px; }
+  .header { padding: 16px 8px 12px 14px; border-bottom: 1px solid var(--divider); display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
   .logo-icon { color: var(--accent); flex-shrink: 0; }
-  .logo-text { font-family: 'Cinzel', serif; font-size: 14px; font-weight: 600; letter-spacing: 0.4px; color: var(--accent); }
+  .logo-text { font-family: 'Cinzel', serif; font-size: 14px; font-weight: 600; letter-spacing: 0.4px; color: var(--accent); white-space: nowrap; }
 
-  .settings-btn {
+  .header-btns { display: flex; align-items: center; gap: 1px; }
+
+  .header-btn {
     background: none; border: 1px solid transparent; border-radius: 5px;
     color: var(--text-faint); padding: 4px 5px; cursor: pointer; display: flex;
     align-items: center; justify-content: center;
     transition: color 0.15s, border-color 0.15s, background 0.15s; flex-shrink: 0;
   }
-  .settings-btn:hover { color: var(--text-sub); border-color: var(--border); background: var(--bg-card); }
-  .settings-btn.active { color: var(--accent); border-color: var(--accent-md); background: var(--bg-card); }
+  .header-btn:hover { color: var(--text-sub); border-color: var(--border); background: var(--bg-card); }
+  .header-btn.active { color: var(--accent); border-color: var(--accent-md); background: var(--bg-card); }
+
+  .bell-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+  .alert-dot {
+    position: absolute; top: -3px; right: -3px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); border: 1px solid var(--bg-base);
+    box-shadow: 0 0 4px var(--accent-md);
+  }
 
   .settings-group {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
@@ -1081,6 +1231,7 @@ onDestroy(() => {
   .card-name { font-size: 13px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .card-name.muted { color: var(--text-faint); }
   .card-clan { font-size: 10px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-meta-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 3px; flex-shrink: 0; }
   .loading-text { color: var(--text-dim); font-style: italic; }
   .error-text { color: #7a3a3a; }
 
@@ -1122,7 +1273,7 @@ onDestroy(() => {
 
   .tab-hidden { display: none; }
 
-  .footer { padding: 8px 14px; border-top: 1px solid var(--divider); display: flex; justify-content: flex-end; }
+  .footer { padding: 8px 14px; border-top: 1px solid var(--divider); display: flex; align-items: center; justify-content: flex-end; }
   .version { font-size: 10px; color: var(--border); letter-spacing: 0.5px; }
 
   .settings-group-danger .settings-group-label { color: var(--neg); }
@@ -1184,6 +1335,76 @@ onDestroy(() => {
   }
   .modal-submit:hover:not(:disabled) { background: var(--accent-md); border-color: var(--accent-hi); }
   .modal-submit:disabled { opacity: 0.5; cursor: default; }
+
+  /* ── Alerts panel ── */
+  .alerts-content { padding-right: 10px; }
+
+  .alerts-empty {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 32px 12px; text-align: center;
+  }
+  .alerts-empty-icon { font-size: 26px; opacity: 0.3; }
+  .alerts-empty p { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+
+
+  .alerts-list-panel { display: flex; flex-direction: column; gap: 5px; }
+
+  .alert-panel-row {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .alert-panel-main {
+    flex: 1; display: flex; align-items: center; gap: 10px;
+    background: none; border: none; cursor: pointer; padding: 10px 10px 10px 12px;
+    text-align: left; min-width: 0;
+    transition: background 0.1s;
+  }
+  .alert-panel-main:hover { background: var(--bg-hover); }
+  .alert-panel-main:hover .alert-panel-name { color: var(--accent); }
+
+  .alert-panel-icon { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+
+  .alert-panel-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .alert-panel-name { font-size: 12px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.1s; }
+  .alert-panel-cond { font-size: 10px; color: var(--text-faint); font-weight: 600; }
+
+  .alert-panel-tag {
+    font-size: 8px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+    color: var(--text-dim); background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 3px; padding: 2px 5px; flex-shrink: 0;
+  }
+
+  .alert-panel-remove {
+    background: none; border: none; cursor: pointer; color: var(--text-faint);
+    font-size: 11px; padding: 10px 10px; line-height: 1; flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .alert-panel-remove:hover { color: var(--neg); }
+
+  /* ── Alert settings ── */
+  .sound-select-row { display: flex; gap: 4px; align-items: center; }
+
+  .settings-select {
+    flex: 1; background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text); font-size: 11px;
+    padding: 4px 6px; font-family: 'Nunito', sans-serif; cursor: pointer; outline: none;
+    transition: border-color 0.1s;
+  }
+  .settings-select:focus { border-color: var(--accent-md); }
+
+  .preview-sound-btn {
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text-sub); font-size: 9px;
+    padding: 4px 8px; cursor: pointer; flex-shrink: 0;
+    transition: border-color 0.1s, color 0.1s;
+  }
+  .preview-sound-btn:hover:not(:disabled) { border-color: var(--accent-md); color: var(--accent); }
+  .preview-sound-btn:disabled { opacity: 0.35; cursor: default; }
+
+
+
 
   .tip-label { cursor: help; }
   .tooltip {

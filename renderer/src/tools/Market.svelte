@@ -7,8 +7,9 @@
 </script>
 
 <script lang="ts">
-import { allItems, priceCache, formatItemName, formatGold, createNavListener, apiFetch, type MarketItem } from '../lib/store';
+import { allItems, priceCache, lastPriceRefresh, priceRefreshCount, formatItemName, formatGold, toolNavigation, apiFetch, priceAlerts, addPriceAlert, removePriceAlert, checkPriceAlerts, type MarketItem, type PriceAlert } from '../lib/store';
 import { track } from '../lib/analytics';
+import DevPanel from '../lib/DevPanel.svelte';
 
 interface ComprehensivePrice {
   itemId: number;
@@ -55,6 +56,11 @@ let historyError: number | null = null;
 let containerWidth = 260;
 let hoveredPoint: PriceHistoryPoint | null = null;
 let hoverX = 0;
+
+let alertField: 'sell' | 'buy' = 'sell';
+let alertDirection: 'below' | 'above' = 'below';
+let alertThreshold = 0;
+
 
 $: isUntradeable = marketData !== null &&
   marketData.averagePrice1Day === 0 &&
@@ -199,11 +205,28 @@ async function selectMarketItem(item: MarketItem) {
     historyCache = cache;
     historyData = cache['24h'] ?? [];
     marketData = compData;
+    // Keep priceCache in sync so alert checks use what's visible on screen
+    priceCache.update(c => ({
+      ...c,
+      [item.id]: {
+        lowestSell: compData.lowestSellPricesWithVolume[0]?.key ?? 0,
+        highestBuy:  compData.highestBuyPricesWithVolume[0]?.key ?? 0,
+      },
+    }));
+    checkPriceAlerts();
+    alertField = 'sell';
+    alertDirection = 'below';
+    alertThreshold = compData.lowestSellPricesWithVolume[0]?.key ?? compData.averagePrice1Day ?? 0;
   } catch {
     marketError = true;
   } finally {
     marketLoading = false;
   }
+}
+
+function navigateToAlert(alert: PriceAlert) {
+  const item = $allItems.find(i => i.id === alert.itemId);
+  if (item) selectMarketItem(item);
 }
 
 function onMarketInput() {
@@ -220,12 +243,28 @@ function closeDropdown() {
   setTimeout(() => { marketDropdownOpen = false; }, 500);
 }
 
-const _navParam = createNavListener('Market');
-$: if ($_navParam) {
-  const item = $allItems.find(i => i.id === parseInt($_navParam));
-  if (item) selectMarketItem(item);
+let _marketNavId = -1;
+$: {
+  const _nav = $toolNavigation;
+  if (_nav?.tool === 'Market' && _nav.id !== _marketNavId) {
+    _marketNavId = _nav.id;
+    const item = $allItems.find(i => i.id === parseInt(_nav.param));
+    if (item) selectMarketItem(item);
+  }
 }
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Last refresh</span><span class="dev-val">{$lastPriceRefresh ? $lastPriceRefresh.toLocaleTimeString() : 'never'}</span></div>
+  <div class="dev-row"><span class="dev-key">Refresh count</span><span class="dev-val">{$priceRefreshCount} (interval: 60s)</span></div>
+  <div class="dev-row"><span class="dev-key">Cache size</span><span class="dev-val">{Object.keys($priceCache).length} items</span></div>
+  <div class="dev-row"><span class="dev-key">Active alerts</span><span class="dev-val">{$priceAlerts.length} · live poll: {$priceAlerts.length > 0 ? 'yes (comprehensive)' : 'no'}</span></div>
+  <div class="dev-row"><span class="dev-key">Selected ID</span><span class="dev-val">{selectedItemId ?? '—'} · history: {Object.keys(historyCache).length} period(s)</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Bulk API</span><span class="dev-val">/PlayerMarket/items/prices/latest (~5m cache)</span></div>
+  <div class="dev-row"><span class="dev-key">Live API</span><span class="dev-val">/PlayerMarket/items/prices/latest/comprehensive/{'{id}'}</span></div>
+  <div class="dev-row"><span class="dev-key">History API</span><span class="dev-val">/PlayerMarket/items/prices/history/{'{id}'}[?period=X]</span></div>
+</DevPanel>
 
 <div class="market-search-wrap">
   <input
@@ -365,9 +404,9 @@ $: if ($_navParam) {
           style="left: {hoverX < containerWidth / 2 ? hoverX + 8 : hoverX - 90}px; top: 4px;"
         >
           <div class="tooltip-time">{fmtTime(hoveredPoint.timestamp)}</div>
-          <div class="tooltip-row"><span>Avg</span><span>{formatGold(hoveredPoint.averagePrice)}</span></div>
-          <div class="tooltip-row"><span>Low</span><span>{formatGold(hoveredPoint.lowesSellPrice)}</span></div>
-          <div class="tooltip-row"><span>High</span><span>{formatGold(hoveredPoint.highestSellPrice)}</span></div>
+          <div class="tooltip-row"><span>Avg</span><span>{hoveredPoint.averagePrice.toLocaleString()}</span></div>
+          <div class="tooltip-row"><span>Low</span><span>{hoveredPoint.lowesSellPrice.toLocaleString()}</span></div>
+          <div class="tooltip-row"><span>High</span><span>{hoveredPoint.highestSellPrice.toLocaleString()}</span></div>
           <div class="tooltip-row"><span>Vol</span><span>{hoveredPoint.tradeVolume.toLocaleString()}</span></div>
         </div>
       {/if}
@@ -393,9 +432,9 @@ $: if ($_navParam) {
         <span>Price</span>
         <span>Volume</span>
       </div>
-      {#each marketData.highestBuyPricesWithVolume as row}
+      {#each marketData.highestBuyPricesWithVolume.slice(0, 10) as row}
         <div class="market-table-row buy">
-          <span>{formatGold(row.key)}</span>
+          <span>{row.key.toLocaleString()}</span>
           <span>{Math.round(row.value).toLocaleString()}</span>
         </div>
       {/each}
@@ -406,15 +445,63 @@ $: if ($_navParam) {
         <span>Price</span>
         <span>Volume</span>
       </div>
-      {#each marketData.lowestSellPricesWithVolume as row}
+      {#each marketData.lowestSellPricesWithVolume.slice(0, 10) as row}
         <div class="market-table-row sell">
-          <span>{formatGold(row.key)}</span>
+          <span>{row.key.toLocaleString()}</span>
           <span>{Math.round(row.value).toLocaleString()}</span>
         </div>
       {/each}
     </div>
   </div>
+
+  <div class="alert-section">
+    <div class="market-section-label">Price Alert</div>
+    <div class="alert-form">
+      <div class="alert-sentence">
+        <span class="alert-label">If</span>
+        <div class="alert-toggle-group">
+          <button class="alert-tog" class:active={alertField === 'sell'} on:click={() => alertField = 'sell'}>Sell</button>
+          <button class="alert-tog" class:active={alertField === 'buy'} on:click={() => alertField = 'buy'}>Buy</button>
+        </div>
+        <span class="alert-label">price is</span>
+        <div class="alert-toggle-group">
+          <button class="alert-tog" class:active={alertDirection === 'below'} on:click={() => alertDirection = 'below'}>Below</button>
+          <button class="alert-tog" class:active={alertDirection === 'above'} on:click={() => alertDirection = 'above'}>Above</button>
+        </div>
+      </div>
+      <div class="alert-input-row">
+        <input class="alert-price-input" type="number" min="0" bind:value={alertThreshold} />
+        <button
+          class="alert-set-btn"
+          disabled={alertThreshold <= 0}
+          on:click={() => {
+            if (selectedItemId && selectedItemName && alertThreshold > 0) {
+              addPriceAlert({ itemId: selectedItemId, itemName: selectedItemName, field: alertField, direction: alertDirection, threshold: alertThreshold });
+            }
+          }}
+        >Set Alert</button>
+      </div>
+    </div>
+  </div>
   {/if}
+{/if}
+
+{#if $priceAlerts.length > 0}
+  <div class="alerts-list">
+    <div class="market-section-label">Active Alerts</div>
+    {#each $priceAlerts as alert (alert.id)}
+      <div class="alert-row">
+        <button class="alert-item-btn" on:click={() => navigateToAlert(alert)}>
+          <img class="alert-icon" src="./itemicons/{alert.itemName}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
+          <div class="alert-info">
+            <span class="alert-item-name">{formatItemName(alert.itemName)}</span>
+            <span class="alert-cond">{alert.field === 'sell' ? 'Sell' : 'Buy'} {alert.direction === 'below' ? '<' : '>'} {formatGold(alert.threshold)}</span>
+          </div>
+        </button>
+        <button class="alert-remove-btn" on:click={() => removePriceAlert(alert.id)}>✕</button>
+      </div>
+    {/each}
+  </div>
 {/if}
 
 <style>
@@ -578,6 +665,72 @@ $: if ($_navParam) {
   .market-book .market-section-label { justify-content: center; }
   .sell-label { color: var(--pos); }
   .buy-label { color: var(--neg); }
+
+  /* ── Active alerts list ── */
+  .alerts-list { margin-bottom: 8px; }
+
+  .alert-row {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 6px; margin-bottom: 3px;
+  }
+
+  .alert-item-btn {
+    flex: 1; display: flex; align-items: center; gap: 7px;
+    background: none; border: none; cursor: pointer; padding: 0; text-align: left; min-width: 0;
+  }
+  .alert-item-btn:hover .alert-item-name { color: var(--accent); }
+
+  .alert-icon { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
+
+  .alert-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .alert-item-name { font-size: 11px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.1s; }
+  .alert-cond { font-size: 9px; color: var(--text-faint); font-weight: 600; }
+
+  .alert-remove-btn {
+    background: none; border: none; cursor: pointer; color: var(--text-faint);
+    font-size: 10px; padding: 2px 4px; line-height: 1; flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .alert-remove-btn:hover { color: var(--neg); }
+
+  /* ── Set alert section ── */
+  .alert-section { margin-top: 2px; }
+
+  .alert-form { display: flex; flex-direction: column; gap: 5px; }
+
+  .alert-sentence { display: flex; align-items: center; gap: 5px; }
+  .alert-label { font-size: 10px; font-weight: 700; color: var(--text-faint); white-space: nowrap; }
+
+  .alert-toggle-group { display: flex; flex: 1; }
+  .alert-tog {
+    flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text-faint); font-size: 10px; font-weight: 700;
+    padding: 4px 6px; cursor: pointer; font-family: 'Nunito', sans-serif;
+    transition: border-color 0.1s, color 0.1s, background 0.1s;
+  }
+  .alert-tog:first-child { border-radius: 5px 0 0 5px; margin-right: -1px; }
+  .alert-tog:last-child  { border-radius: 0 5px 5px 0; }
+  .alert-tog.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); position: relative; z-index: 1; }
+  .alert-tog:hover:not(.active) { color: var(--text-sub); }
+
+  .alert-input-row { display: flex; gap: 5px; }
+
+  .alert-price-input {
+    flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text); font-size: 11px;
+    padding: 5px 7px; font-family: 'Nunito', sans-serif; min-width: 0;
+  }
+  .alert-price-input:focus { outline: none; border-color: var(--accent-md); }
+
+  .alert-set-btn {
+    flex-shrink: 0; background: var(--bg-raised); border: 1px solid var(--accent-hi);
+    color: var(--accent); font-size: 10px; font-weight: 700;
+    padding: 5px 10px; border-radius: 5px; cursor: pointer;
+    font-family: 'Nunito', sans-serif; transition: background 0.15s;
+  }
+  .alert-set-btn:hover:not(:disabled) { background: var(--accent-lo); }
+  .alert-set-btn:disabled { opacity: 0.4; cursor: default; border-color: var(--border); color: var(--text-faint); }
 
   .market-chart-header {
     display: flex; align-items: center; justify-content: space-between;

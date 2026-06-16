@@ -8,6 +8,7 @@
 
 <script lang="ts">
 import { onMount } from 'svelte';
+import DevPanel from '../lib/DevPanel.svelte';
 
 let content = '';
 
@@ -19,6 +20,13 @@ function save() {
   localStorage.setItem('notepad', content);
 }
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Storage key</span><span class="dev-val">notepad</span></div>
+  <div class="dev-row"><span class="dev-key">Characters</span><span class="dev-val">{content.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Lines</span><span class="dev-val">{content ? content.split('\n').length : 0}</span></div>
+  <div class="dev-row"><span class="dev-key">Bytes (est.)</span><span class="dev-val">{new TextEncoder().encode(content).length}</span></div>
+</DevPanel>
 
 <textarea
   class="notepad"

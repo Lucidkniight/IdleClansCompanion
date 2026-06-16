@@ -10,6 +10,7 @@
 import { onMount } from 'svelte';
 import { clients, xpToLevel, XP_TABLE, formatGold, formatTime, createNavListener, navigate, profitTasks, loadGameConfig, GATHERING_SKILLS, type Task } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
+import DevPanel from '../lib/DevPanel.svelte';
 
 const STAGES = [
   { level: 90,  label: 'All 90'  },
@@ -221,6 +222,16 @@ $: stageEta = (() => {
   return { time: total > 0 ? total : 0, partial, skillTimes };
 })();
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Tasks loaded</span><span class="dev-val">{$profitTasks.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Skills tracked</span><span class="dev-val">{ALL_SKILLS.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Player</span><span class="dev-val">{username || '—'}</span></div>
+  <div class="dev-row"><span class="dev-key">Storage key</span><span class="dev-val">icc-completion-mods</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Profile API</span><span class="dev-val">/PlayerProfile/{'{name}'}</span></div>
+  <div class="dev-row"><span class="dev-key">Config API</span><span class="dev-val">/Configuration/game-data</span></div>
+</DevPanel>
 
 <div class="field">
   <label class="label">Player</label>

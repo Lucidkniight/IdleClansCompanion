@@ -13,10 +13,11 @@
     tick().then(() => node.focus());
   }
   import {
-    clients, allItems, allEquipment, allMonsters, enchantedToBase, loadGameConfig, fetchProfile, fetchClanProfile, formatItemName,
+    clients, allItems, allEquipment, allMonsters, enchantedToBase, loadGameConfig, fetchProfile, fetchClanProfile, formatItemName, formatGold,
     xpToLevel,
     type ClientCard, type Monster, type PlayerProfile,
   } from '../lib/store';
+  import DevPanel from '../lib/DevPanel.svelte';
 
   const SLOTS = [
     { key: 'ammunition', label: 'Ammo',     row: 1, col: 2, slotId: 9  },
@@ -133,7 +134,7 @@
     return $allMonsters
       .filter(m => !q || formatMonsterName(m.name).toLowerCase().includes(q))
       .sort((a, b) => (a.isBoss === b.isBoss ? a.health - b.health : a.isBoss ? 1 : -1))
-      .slice(0, q ? 200 : 80);
+      .slice(0, q ? 200 : 100);
   })();
 
   function getMonsterStyle(m: Monster): string {
@@ -388,6 +389,11 @@
   $: potionsActiveCount  = [potionGreatSight, potionSwiftness, potionPurePower, potionDarkMagic, potionAncientKnowledge, potionAscension, potionResurrection].filter(Boolean).length;
   $: taskActiveCount     = [taskIsClanQuest, taskIsExterminatingAssignment, taskIsQuest].filter(Boolean).length;
 
+  const GOLD_ITEM_ID = 19;
+  $: keyItemIds = new Set(
+    $allItems.filter(i => i.name.endsWith('_key') || i.name.endsWith('_chest')).map(i => i.id)
+  );
+
   // ── Combat formula helpers ─────────────────────────────────────────────────
 
 function calcAugmented(level: number, bonus: number): number {
@@ -580,7 +586,16 @@ function calcAugmented(level: number, bonus: number): number {
       }
     }
 
-    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn };
+    let goldPerHour = 0;
+    const keyDrops = new Map<number, number>();
+    if (m && kph > 0) {
+      for (const drop of m.loot) {
+        if (drop.itemId === GOLD_ITEM_ID) goldPerHour += kph * drop.dropRate * drop.avgAmount;
+        if (keyItemIds.has(drop.itemId)) keyDrops.set(drop.itemId, (keyDrops.get(drop.itemId) ?? 0) + kph * drop.dropRate);
+      }
+    }
+
+    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn, goldPerHour, keyDrops };
   });
 
   onMount(async () => {
@@ -589,6 +604,16 @@ function calcAugmented(level: number, bonus: number): number {
 </script>
 
 
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Items loaded</span><span class="dev-val">{$allItems.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Equipment</span><span class="dev-val">{$allEquipment.length} items</span></div>
+  <div class="dev-row"><span class="dev-key">Monsters</span><span class="dev-val">{$allMonsters.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Loadouts</span><span class="dev-val">{loadouts.length} · active #{activeIdx + 1}</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Config API</span><span class="dev-val">/Configuration/game-data</span></div>
+  <div class="dev-row"><span class="dev-key">Profile API</span><span class="dev-val">/PlayerProfile/{'{name}'}</span></div>
+</DevPanel>
 
 <div class="container">
 
@@ -874,6 +899,23 @@ function calcAugmented(level: number, bonus: number): number {
               <span class="result-value">{d.respawn > 0 ? d.respawn.toFixed(1) + 's' : '—'}</span>
             </div>
           </div>
+          {#if d.goldPerHour > 0 || d.keyDrops.size > 0}
+          <div class="result-profit">
+            <span class="result-section-label">Profit</span>
+            {#if d.goldPerHour > 0}
+            <div class="result-detail-cell">
+              <span class="result-label">Gold/h</span>
+              <span class="result-value">{formatGold(Math.round(d.goldPerHour))}</span>
+            </div>
+            {/if}
+            {#each [...d.keyDrops.entries()] as [itemId, rate]}
+            <div class="result-detail-cell">
+              <span class="result-label">{formatItemName($allItems.find(i => i.id === itemId)?.name ?? `key_${itemId}`)}/h</span>
+              <span class="result-value">{rate.toFixed(2)}</span>
+            </div>
+            {/each}
+          </div>
+          {/if}
         {/if}
       </div>
       {/each}
@@ -1589,6 +1631,25 @@ function calcAugmented(level: number, bonus: number): number {
     gap: 3px;
     padding: 4px 6px 5px;
     border-top: 1px solid var(--divider);
+  }
+
+  .result-profit {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    padding: 4px 6px 5px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .result-section-label {
+    grid-column: 1 / -1;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    text-align: center;
+    padding-bottom: 2px;
   }
 
   .result-detail-cell {

@@ -14,6 +14,7 @@ import {
   type Task, type ClientCard,
 } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
+import DevPanel from '../lib/DevPanel.svelte';
 
 const TOOL_TIERS = [
   { label: 'None',               value: 0 },
@@ -212,15 +213,21 @@ function calcXp(task: Task) {
 }
 
 $: xpTasks = (() => {
-  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp, xpCurrentLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable];
+  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp, xpCurrentLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable, filterHideLocked, filterHideUnrealistic, filterHideInputRequired];
   return $profitTasks
     .filter(t => t.skill === selectedSkill)
+    .filter(t => {
+      if (filterHideLocked && t.level > xpCurrentLevel) return false;
+      if (filterHideInputRequired && t.costs.length > 0) return false;
+      return true;
+    })
     .sort((a, b) => {
       const aLocked = a.level > xpCurrentLevel ? 1 : 0;
       const bLocked = b.level > xpCurrentLevel ? 1 : 0;
       if (aLocked !== bLocked) return aLocked - bLocked;
       return calcXp(b).xpPerHr - calcXp(a).xpPerHr;
-    });
+    })
+    .filter(t => !filterHideUnrealistic || calcXp(t).xpPerHr <= 1_000_000);
 })();
 
 $: xpCurrentLevel = xpToLevel(xpCurrentXp);
@@ -247,6 +254,13 @@ const TASK_IMAGE_OVERRIDE: Record<string, string> = {
   exceptional_enchantment: 'exceptional_scroll_of_woodcutting',
 };
 
+let showFilterMenu = false;
+let filterHideLocked = false;
+let filterHideUnrealistic = false;
+let filterHideInputRequired = false;
+
+$: activeFilterCount = [filterHideLocked, filterHideUnrealistic, filterHideInputRequired].filter(Boolean).length;
+
 let _tipText = '';
 let _tipX = 0;
 let _tipY = 0;
@@ -264,6 +278,16 @@ function fillFromClient(client: ClientCard) {
   autoFillTimer = setTimeout(() => { autoFilledFields = new Set(); }, 2000);
 }
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Tasks loaded</span><span class="dev-val">{$profitTasks.length}</span></div>
+  <div class="dev-row"><span class="dev-key">XP table</span><span class="dev-val">{XP_TABLE.length} levels</span></div>
+  <div class="dev-row"><span class="dev-key">Selected skill</span><span class="dev-val">{selectedSkill || '—'}</span></div>
+  <div class="dev-row"><span class="dev-key">Current XP</span><span class="dev-val">{xpCurrentXp.toLocaleString()}</span></div>
+  <div class="dev-row"><span class="dev-key">Storage key</span><span class="dev-val">icc-xp-mods</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Config API</span><span class="dev-val">/Configuration/game-data</span></div>
+</DevPanel>
 
 {#if loading}
   <div class="status">Loading tasks…</div>
@@ -412,6 +436,23 @@ function fillFromClient(client: ClientCard) {
   <div class="field">
     <label class="label">Tasks</label>
     <div class="task-list">
+      <div class="filter-wrap">
+        <button class="filter-btn" class:active={activeFilterCount > 0} on:click={() => showFilterMenu = !showFilterMenu} aria-label="Toggle task filters">
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+            <path d="M0.5 1.5h9l-3.5 4v3l-2-1v-2z"/>
+          </svg>
+          Filters
+          {#if activeFilterCount > 0}<span class="filter-badge">{activeFilterCount}</span>{/if}
+        </button>
+        {#if showFilterMenu}
+          <div class="filter-backdrop" on:click={() => showFilterMenu = false} role="none"></div>
+          <div class="filter-menu">
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideLocked} /><span>Hide locked tasks (level req)</span></label>
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideUnrealistic} /><span>Hide unrealistic tasks (&gt;1M XP/hr)</span></label>
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideInputRequired} /><span>Hide tasks requiring inputs</span></label>
+          </div>
+        {/if}
+      </div>
       {#each xpTasks as task}
         {@const x = calcXp(task)}
         <button
@@ -527,6 +568,56 @@ function fillFromClient(client: ClientCard) {
   .boost-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
 
   .task-list { display: flex; flex-direction: column; gap: 3px; }
+
+  .filter-wrap { position: relative; }
+
+  .filter-btn {
+    width: 100%; display: flex; align-items: center; justify-content: center; gap: 5px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-size: 10px; font-weight: 600;
+    padding: 5px 10px; cursor: pointer; transition: all 0.15s;
+    font-family: 'Nunito', sans-serif;
+  }
+  .filter-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
+  .filter-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
+
+  .filter-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--accent); color: var(--bg-deep);
+    border-radius: 8px; font-size: 9px; font-weight: 800;
+    min-width: 14px; height: 14px; padding: 0 3px; line-height: 1;
+  }
+
+  .filter-backdrop { position: fixed; inset: 0; z-index: 99; }
+
+  .filter-menu {
+    position: absolute; top: calc(100% + 3px); left: 0; right: 0; z-index: 100;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 0; display: flex; flex-direction: column;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .filter-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; cursor: pointer; transition: background 0.1s;
+  }
+  .filter-item:hover { background: var(--bg-hover); }
+  .filter-item input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 13px; height: 13px; flex-shrink: 0;
+    border: 1px solid var(--border); border-radius: 3px;
+    background: var(--bg-raised); cursor: pointer;
+    position: relative; transition: all 0.15s;
+  }
+  .filter-item input[type="checkbox"]:checked {
+    background: var(--accent); border-color: var(--accent-hi);
+  }
+  .filter-item input[type="checkbox"]:checked::after {
+    content: ''; position: absolute;
+    left: 3px; top: 0px; width: 4px; height: 8px;
+    border: 2px solid var(--bg-deep); border-top: none; border-left: none;
+    transform: rotate(45deg);
+  }
+  .filter-item span { font-size: 11px; color: var(--text-muted); }
   .task-row {
     display: flex; justify-content: space-between; align-items: center; gap: 9px;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;

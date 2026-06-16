@@ -9,11 +9,12 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import {
-  profitTasks, profitSkills, priceCache, clients,
+  profitTasks, profitSkills, priceCache, clients, allEquipment,
   loadGameConfig, GATHERING_SKILLS, formatItemName, formatGold, navigate, xpToLevel,
   type Task, type ClientCard,
 } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
+import DevPanel from '../lib/DevPanel.svelte';
 
 const TOOL_TIERS = [
   { label: 'None',               value: 0 },
@@ -120,6 +121,16 @@ let modSellSpeed: Speed = 'instant';
 let modBuySpeed: Speed = 'instant';
 let currentLevel = 120;
 
+let showFilterMenu = false;
+let filterHideLocked = false;
+let filterHideUnprofitable = false;
+let filterHideGear = false;
+let filterHideNoMarketData = false;
+let filterHideInputRequired = false;
+let filterHideUnrealistic = false;
+
+$: activeFilterCount = [filterHideLocked, filterHideUnprofitable, filterHideGear, filterHideNoMarketData, filterHideInputRequired, filterHideUnrealistic].filter(Boolean).length;
+
 const _PROFIT_MODS_KEY = 'icc-profit-mods';
 const _profitSkillMods: Record<string, { modTool: number; modGearPieces: number; modJewelry: number[]; modCapeTier: number; modGatherers: boolean; modGloves: boolean; modSellSpeed: Speed; modBuySpeed: Speed; currentLevel: number; modFishermanTier?: number; modLumberjackTier?: number; modPowerForagerTier?: number; modFarmingTrickeryTier?: number; modPlankBargainTier?: number; modSmeltingMagicTier?: number; modArrowCrafter?: boolean; modDelicateManufacturing?: boolean }> = (() => {
   try { return JSON.parse(localStorage.getItem(_PROFIT_MODS_KEY) ?? '{}'); } catch { return {}; }
@@ -193,14 +204,28 @@ function calcProfit(task: Task) {
 }
 
 $: skillTasks = (() => {
-  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modGloves, modSellSpeed, modBuySpeed, currentLevel, modFishermanTier, modLumberjackTier, modPowerForagerTier, modFarmingTrickeryTier, modPlankBargainTier, modSmeltingMagicTier, modArrowCrafter, modDelicateManufacturing];
+  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modGloves, modSellSpeed, modBuySpeed, currentLevel, modFishermanTier, modLumberjackTier, modPowerForagerTier, modFarmingTrickeryTier, modPlankBargainTier, modSmeltingMagicTier, modArrowCrafter, modDelicateManufacturing, filterHideLocked, filterHideUnprofitable, filterHideGear, filterHideNoMarketData, filterHideInputRequired, filterHideUnrealistic, equipmentItemIds];
+  const cache = $priceCache;
   return $profitTasks
     .filter(t => t.skill === selectedSkill && t.hasProfitValue)
+    .filter(t => {
+      if (filterHideLocked && t.level > currentLevel) return false;
+      if (filterHideGear && equipmentItemIds.has(t.itemReward)) return false;
+      if (filterHideNoMarketData && (t.itemReward === -1 || !cache[t.itemReward] || (cache[t.itemReward].highestBuy === 0 && cache[t.itemReward].lowestSell === 0))) return false;
+      if (filterHideInputRequired && t.costs.length > 0) return false;
+      return true;
+    })
     .sort((a, b) => {
       const aLocked = a.level > currentLevel ? 1 : 0;
       const bLocked = b.level > currentLevel ? 1 : 0;
       if (aLocked !== bLocked) return aLocked - bLocked;
       return calcProfit(b).profitPerHr - calcProfit(a).profitPerHr;
+    })
+    .filter(t => {
+      const profit = calcProfit(t).profitPerHr;
+      if (filterHideUnprofitable && profit < 0) return false;
+      if (filterHideUnrealistic && profit > 1_000_000) return false;
+      return true;
     });
 })();
 
@@ -234,6 +259,8 @@ const TASK_IMAGE_OVERRIDE: Record<string, string> = {
   exceptional_enchantment: 'exceptional_scroll_of_woodcutting',
 };
 
+$: equipmentItemIds = new Set($allEquipment.map(e => e.id));
+
 let _tipText = '';
 let _tipX = 0;
 let _tipY = 0;
@@ -242,6 +269,16 @@ function showTip(e: MouseEvent, text: string) { _tipText = text; _tipX = e.clien
 function moveTip(e: MouseEvent) { _tipX = e.clientX; _tipY = e.clientY; }
 function hideTip() { _tipVisible = false; }
 </script>
+
+<DevPanel>
+  <div class="dev-row"><span class="dev-key">Tasks loaded</span><span class="dev-val">{$profitTasks.length}</span></div>
+  <div class="dev-row"><span class="dev-key">Cache size</span><span class="dev-val">{Object.keys($priceCache).length} items</span></div>
+  <div class="dev-row"><span class="dev-key">Selected skill</span><span class="dev-val">{selectedSkill || '—'}</span></div>
+  <div class="dev-row"><span class="dev-key">Storage key</span><span class="dev-val">icc-profit-mods</span></div>
+  <div class="dev-sep"></div>
+  <div class="dev-row"><span class="dev-key">Config API</span><span class="dev-val">/Configuration/game-data</span></div>
+  <div class="dev-row"><span class="dev-key">Prices API</span><span class="dev-val">/PlayerMarket/items/prices/latest</span></div>
+</DevPanel>
 
 {#if loading}
   <div class="status">Loading tasks…</div>
@@ -403,6 +440,26 @@ function hideTip() { _tipVisible = false; }
   <div class="field">
     <label class="label">Tasks</label>
     <div class="task-list">
+      <div class="filter-wrap">
+        <button class="filter-btn" class:active={activeFilterCount > 0} on:click={() => showFilterMenu = !showFilterMenu} aria-label="Toggle task filters">
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+            <path d="M0.5 1.5h9l-3.5 4v3l-2-1v-2z"/>
+          </svg>
+          Filters
+          {#if activeFilterCount > 0}<span class="filter-badge">{activeFilterCount}</span>{/if}
+        </button>
+        {#if showFilterMenu}
+          <div class="filter-backdrop" on:click={() => showFilterMenu = false} role="none"></div>
+          <div class="filter-menu">
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideLocked} /><span>Hide locked tasks (level req)</span></label>
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideUnprofitable} /><span>Hide unprofitable tasks</span></label>
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideGear} /><span>Hide gear tasks</span></label>
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideNoMarketData} /><span>Hide tasks with no market data</span></label>
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideInputRequired} /><span>Hide tasks requiring inputs</span></label>
+            <label class="filter-item"><input type="checkbox" bind:checked={filterHideUnrealistic} /><span>Hide unrealistic tasks (&gt;1M gold/hr)</span></label>
+          </div>
+        {/if}
+      </div>
       {#each skillTasks as task}
         {@const p = calcProfit(task)}
         <button
@@ -423,7 +480,12 @@ function hideTip() { _tipVisible = false; }
             alt=""
           />
           <div class="task-left">
-            <span class="task-name">{formatItemName(task.name)}</span>
+            <div class="task-name-row">
+              <span class="task-name">{formatItemName(task.name)}</span>
+              {#if p.profitPerHr > 1_000_000}
+                <span class="task-flag" on:mouseenter={e => showTip(e, 'Exceeds 1M gold/hr — market supply likely cannot sustain this method at scale.')} on:mousemove={moveTip} on:mouseleave={hideTip}>⚠️</span>
+              {/if}
+            </div>
             <span class="task-level" class:req-fail={task.level > currentLevel}>Lv. {task.level}</span>
           </div>
           <span class="task-phr" class:pos={p.profitPerHr > 0} class:neg={p.profitPerHr < 0}>
@@ -471,6 +533,56 @@ function hideTip() { _tipVisible = false; }
     color: var(--accent); display: flex; align-items: center; gap: 8px; white-space: nowrap;
   }
   .label::before, .label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .filter-wrap { position: relative; }
+
+  .filter-btn {
+    width: 100%; display: flex; align-items: center; justify-content: center; gap: 5px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-muted); font-size: 10px; font-weight: 600;
+    padding: 5px 10px; cursor: pointer; transition: all 0.15s;
+    font-family: 'Nunito', sans-serif;
+  }
+  .filter-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
+  .filter-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
+
+  .filter-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--accent); color: var(--bg-deep);
+    border-radius: 8px; font-size: 9px; font-weight: 800;
+    min-width: 14px; height: 14px; padding: 0 3px; line-height: 1;
+  }
+
+  .filter-backdrop { position: fixed; inset: 0; z-index: 99; }
+
+  .filter-menu {
+    position: absolute; top: calc(100% + 3px); left: 0; right: 0; z-index: 100;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 0; display: flex; flex-direction: column;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .filter-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; cursor: pointer; transition: background 0.1s;
+  }
+  .filter-item:hover { background: var(--bg-hover); }
+  .filter-item input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none;
+    width: 13px; height: 13px; flex-shrink: 0;
+    border: 1px solid var(--border); border-radius: 3px;
+    background: var(--bg-raised); cursor: pointer;
+    position: relative; transition: all 0.15s;
+  }
+  .filter-item input[type="checkbox"]:checked {
+    background: var(--accent); border-color: var(--accent-hi);
+  }
+  .filter-item input[type="checkbox"]:checked::after {
+    content: ''; position: absolute;
+    left: 3px; top: 0px; width: 4px; height: 8px;
+    border: 2px solid var(--bg-deep); border-top: none; border-left: none;
+    transform: rotate(45deg);
+  }
+  .filter-item span { font-size: 11px; color: var(--text-muted); }
 
   .clients-row { display: flex; flex-wrap: wrap; gap: 3px; }
   .client-chip {
@@ -527,7 +639,9 @@ function hideTip() { _tipVisible = false; }
   .task-icon { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
 
   .task-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .task-name-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
   .task-name { font-size: 11px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task-flag { font-size: 10px; flex-shrink: 0; cursor: help; line-height: 1; }
   .task-level { font-size: 9px; color: var(--text-faint); }
   .task-phr { font-size: 11px; font-weight: 700; flex-shrink: 0; }
 

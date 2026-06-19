@@ -3,6 +3,7 @@
     name: 'Wiki',
     desc: 'Search the Idle Clans wiki',
     icon: '📖',
+    author: 'Lucid',
   };
 </script>
 

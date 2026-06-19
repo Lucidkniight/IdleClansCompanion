@@ -3,6 +3,7 @@
     name: 'Completionist Calculator',
     desc: 'XP needed for completionist capes',
     icon: './itemicons/completionist_cape_tier_4.png',
+    author: 'Lucid',
   };
 </script>
 

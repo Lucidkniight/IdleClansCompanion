@@ -1,4 +1,6 @@
-import { app, BrowserWindow, ipcMain, screen, Menu, shell } from "electron";
+import { app, BrowserWindow, ipcMain, screen, Menu, shell, dialog } from "electron";
+import { spawn } from "child_process";
+import { basename } from "path";
 import electronReload from "electron-reload";
 import { join } from "path";
 import { autoUpdater } from 'electron-updater';
@@ -32,7 +34,9 @@ async function main() {
     snapActiveWindow(false);
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
 
   if (app.isPackaged) {
     mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
@@ -211,6 +215,29 @@ ipcMain.handle('focus-window', (_event: any, id: number | null) => {
 ipcMain.handle('get-window-offset', () => {
   const [x, y] = mainWindow.getPosition();
   return { x, y };
+});
+
+ipcMain.handle('browse-exe', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Game Executable',
+    filters: [{ name: 'Executable', extensions: ['exe'] }],
+    properties: ['openFile'],
+  });
+  const filePath = result.filePaths[0];
+  if (!filePath) return { path: null, error: null };
+
+  if (basename(filePath).toLowerCase() !== 'idle clans.exe') {
+    return { path: null, error: 'File must be "Idle Clans.exe".' };
+  }
+
+  return { path: filePath, error: null };
+});
+
+ipcMain.handle('launch-game-clients', (_event, exePath: string, count: number) => {
+  const n = Math.max(1, Math.min(8, Math.floor(count)));
+  for (let i = 0; i < n; i++) {
+    spawn(exePath, [], { detached: true, stdio: 'ignore' }).unref();
+  }
 });
 
 ipcMain.handle('get-window-size', () => {

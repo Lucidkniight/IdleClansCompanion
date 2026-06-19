@@ -3,6 +3,7 @@
     name: 'Player Lookup',
     desc: 'Skills, upgrades & profile info',
     icon: '🔎',
+    author: 'Lucid',
   };
 </script>
 

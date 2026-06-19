@@ -16,12 +16,14 @@
           · image:  icon: './skilltaskicons/MyIcon.png'
                          './itemicons/my_item.png'
           Place new image files in renderer/public 
--->
+  author — your name
+
 <script context="module" lang="ts">
   export const toolMeta = {
     name: 'My Tool',
     desc: 'A short description of what this tool does',
     icon: '🔧',  // or e.g. './skilltaskicons/Combat.png'
+    author: 'Lucid',  // 'Lucid' = official · anything else = shown under Community section
   };
 </script>
 

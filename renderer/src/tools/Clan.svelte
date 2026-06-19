@@ -3,6 +3,7 @@
     name: 'Clan',
     desc: 'Clan XP leaderboard & cup standings',
     icon: './skilltaskicons/Clan.png',
+    author: 'Lucid',
   };
 </script>
 

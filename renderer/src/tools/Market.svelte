@@ -3,6 +3,7 @@
     name: 'Market',
     desc: 'Live prices and order books',
     icon: './skilltaskicons/AuctionHouse.png',
+    author: 'Lucid',
   };
 </script>
 

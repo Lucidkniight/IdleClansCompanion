@@ -11,5 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setAlwaysOnTop: (value: boolean) => ipcRenderer.invoke('set-always-on-top', value),
   getWindowPreviews: (ids: number[]) => ipcRenderer.invoke('get-window-previews', ids),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  browseExe: () => ipcRenderer.invoke('browse-exe'),
+  launchGameClients: (exePath: string, count: number) => ipcRenderer.invoke('launch-game-clients', exePath, count),
 });
 

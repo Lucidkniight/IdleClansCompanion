@@ -3,18 +3,24 @@
     name: 'Profit Calculator',
     desc: 'Profit per hour for any task',
     icon: './itemicons/gold.png',
+    author: 'Lucid',
   };
 </script>
 
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onMount, tick } from 'svelte';
 import {
-  profitTasks, profitSkills, priceCache, clients, allEquipment,
+  profitTasks, profitSkills, priceCache, clients, allEquipment, allItems,
   loadGameConfig, GATHERING_SKILLS, formatItemName, formatGold, navigate, xpToLevel,
-  type Task, type ClientCard,
+  fetchProfile, fetchClanProfile,
+  type Task, type ClientCard, type PlayerProfile, type ClanProfile,
 } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
 import DevPanel from '../lib/DevPanel.svelte';
+
+function focusOnMount(node: HTMLElement) {
+  tick().then(() => node.focus());
+}
 
 const TOOL_TIERS = [
   { label: 'None',               value: 0 },
@@ -167,6 +173,8 @@ $: if (selectedSkill) {
   try { localStorage.setItem(_PROFIT_MODS_KEY, JSON.stringify(_profitSkillMods)); } catch {}
 }
 
+$: if (selectedSkill && lastImportedProfile) _applyProfile(lastImportedProfile, selectedSkill.toLowerCase(), lastImportedClanProfile);
+
 onMount(async () => {
   if ($profitTasks.length === 0) {
     loading = true;
@@ -231,11 +239,203 @@ $: skillTasks = (() => {
 
 $: hasSkillSpecific = ['Fishing', 'Woodcutting', 'Foraging', 'Farming', 'Carpentry', 'Smithing', 'Crafting'].includes(selectedSkill);
 
-$: clientsWithSkill = $clients.filter(c => c.playerName && c.profile?.skillExperiences);
+$: clientsWithProfile = $clients.filter(c => c.playerName && c.profile?.skillExperiences);
 
-function fillFromClient(client: ClientCard) {
-  const xp = client.profile?.skillExperiences?.[selectedSkill.toLowerCase()] ?? 0;
-  currentLevel = xpToLevel(xp);
+let importModalOpen = false;
+let importLevel = true;
+let importUpgrades = true;
+let importEquipment = true;
+let importSearch = '';
+let importLoading = false;
+let importError = '';
+let importFilledFields = new Set<string>();
+let _importFillTimer: ReturnType<typeof setTimeout>;
+let lastImportedProfile: PlayerProfile | null = null;
+let lastImportedClanProfile: ClanProfile | null = null;
+let importedPlayerName: string | null = null;
+let refreshCooldown = false;
+let _refreshTimer: ReturnType<typeof setTimeout>;
+
+function openImportModal() { importModalOpen = true; importSearch = ''; importError = ''; }
+function closeImportModal() { importModalOpen = false; importSearch = ''; importLoading = false; }
+function clearImport() {
+  lastImportedProfile = null; lastImportedClanProfile = null; importedPlayerName = null;
+  clearTimeout(_refreshTimer); refreshCooldown = false;
+}
+
+async function refreshImport() {
+  if (!importedPlayerName || refreshCooldown) return;
+  refreshCooldown = true;
+  clearTimeout(_refreshTimer);
+  _refreshTimer = setTimeout(() => { refreshCooldown = false; }, 30000);
+  try {
+    const profile = await fetchProfile(importedPlayerName);
+    if (!profile) return;
+    const clanProfile = profile.guildName ? await fetchClanProfile(profile.guildName) : null;
+    doImport(profile, clanProfile);
+  } catch {}
+}
+
+const PLANK_BARGAIN_MAP = [0, 0.30, 0.60, 1.00];
+
+const _TIER_MAP: [string, string, number][] = [
+  ['normal_','Normal',0.04],['refined_','Refined',0.06],['great_','Great',0.08],
+  ['elite_','Elite',0.10],['superior_','Superior',0.12],['outstanding_','Outstanding',0.15],
+  ['godlike_','Godlike',0.20],['otherworldly_','Otherworldly',0.25],
+];
+const _SKILL_TOOL: Record<string, string> = {
+  cooking: 'cooking_pan', crafting: 'crafting_needle', fishing: 'fishing_rod',
+  smithing: 'hammer', woodcutting: 'hatchet', agility: 'jumping_rope',
+  plundering: 'lockpicks', brewing: 'philosopher_stone', mining: 'pickaxe',
+  farming: 'rake', carpentry: 'saw', foraging: 'secateurs', invocation: 'brush',
+};
+const _JEWELRY_SLOTS: [string, string, number][] = [
+  ['jewellery','Ring',0],['amulet','Amulet',1],['bracelet','Bracelet',2],['earrings','Earrings',3],
+];
+
+function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?: ClanProfile | null) {
+  if (importLevel) {
+    currentLevel = xpToLevel(profile.skillExperiences?.[skillLower] ?? 0);
+  }
+  if (importUpgrades) {
+    const upgs = profile.upgrades ?? {};
+    modFishermanTier = Math.min(upgs['theFisherman'] ?? 0, 5) * 0.20;
+    modLumberjackTier = Math.min(upgs['theLumberjack'] ?? 0, 5) * 0.20;
+    modPowerForagerTier = Math.min(upgs['powerForager'] ?? 0, 5) * 0.10;
+    modFarmingTrickeryTier = Math.min(upgs['farmingTrickery'] ?? 0, 5) * 0.10;
+    modPlankBargainTier = PLANK_BARGAIN_MAP[Math.min(upgs['plankBargain'] ?? 0, 3)] ?? 0;
+    modSmeltingMagicTier = Math.min(upgs['smeltingMagic'] ?? 0, 3) * 0.10;
+    modArrowCrafter = (upgs['arrowCrafter'] ?? 0) > 0;
+    modDelicateManufacturing = (upgs['delicateManufacturing'] ?? 0) > 0;
+    try {
+      const clanUpgIds: number[] = clanProfile?.serializedUpgrades ? JSON.parse(clanProfile.serializedUpgrades) : [];
+      modGatherers = clanUpgIds.includes(23);
+    } catch { modGatherers = false; }
+  }
+  if (importEquipment) {
+    modTool = 0; modGearPieces = 0; modCapeTier = 0;
+    modJewelry0 = 0; modJewelry1 = 0; modJewelry2 = 0; modJewelry3 = 0;
+    const rawBoost = profile.enchantmentBoosts?.[skillLower] ?? 0;
+    const totalJewelryPct = rawBoost > 1 ? rawBoost / 100 : rawBoost;
+    const jSlots = [0, 0, 0, 0];
+    if (totalJewelryPct > 0.001) {
+      const _JTIERS = [0.05, 0.035, 0.015] as const;
+      let jDone = false;
+      for (const jt of _JTIERS) {
+        const n = Math.round(totalJewelryPct / jt);
+        if (n > 0 && n <= 4 && Math.abs(n * jt - totalJewelryPct) < 0.003) {
+          for (let i = 0; i < n; i++) jSlots[i] = jt;
+          jDone = true; break;
+        }
+      }
+      if (!jDone) {
+        let rem = totalJewelryPct;
+        for (let i = 0; i < 4 && rem > 0.003; i++) {
+          for (const jt of _JTIERS) {
+            if (rem >= jt - 0.003) { jSlots[i] = jt; rem = Math.round((rem - jt) * 1000) / 1000; break; }
+          }
+        }
+      }
+    }
+    [modJewelry0, modJewelry1, modJewelry2, modJewelry3] = jSlots;
+    if (profile.equipment) {
+      const equip = profile.equipment;
+      const items = $allItems;
+      const eqData = $allEquipment;
+      const cleanName = (id: number) => {
+        const n = items.find(i => i.id === id)?.name ?? '';
+        return n.endsWith('_enchanted') ? n.slice(0, -10) : n;
+      };
+      const getEq = (id: number) => { const n = cleanName(id); return eqData.find(e => e.name === n) ?? null; };
+      const toolSuffix = _SKILL_TOOL[skillLower];
+      let detectedSkillId: number | null = null;
+      outer: for (const id of Object.values(equip)) {
+        const n = cleanName(id);
+        if (!toolSuffix) continue;
+        for (const [pfx, , tier] of _TIER_MAP) {
+          if (n === pfx + toolSuffix) {
+            modTool = tier;
+            const eq = getEq(id);
+            if (eq && eq.skillBoostPct > 0) detectedSkillId = eq.skillBoostSkill;
+            break outer;
+          }
+        }
+      }
+      const matchesSkill = (id: number) => {
+        const eq = getEq(id);
+        if (!eq || eq.skillBoostPct === 0) return false;
+        return detectedSkillId !== null ? eq.skillBoostSkill === detectedSkillId : cleanName(id).includes(skillLower);
+      };
+      const capeId = equip['cape'];
+      if (capeId) {
+        const n = cleanName(capeId);
+        if (n.includes(skillLower) && n.includes('_cape_tier_')) {
+          modCapeTier = n.includes('_tier_4') ? 0.20 : n.includes('_tier_3') ? 0.15 : n.includes('_tier_2') ? 0.10 : 0.05;
+        }
+      }
+      let gear = 0;
+      for (const slot of ['head','body','legs']) {
+        const id = equip[slot];
+        if (id && matchesSkill(id)) gear++;
+      }
+      modGearPieces = Math.min(gear, 3);
+    }
+  }
+}
+
+function doImport(profile: PlayerProfile, clanProfile: ClanProfile | null = null) {
+  _applyProfile(profile, selectedSkill.toLowerCase(), clanProfile);
+  const filled = new Set<string>();
+  if (importUpgrades) {
+    if (modFishermanTier > 0) filled.add('fisherman');
+    if (modLumberjackTier > 0) filled.add('lumberjack');
+    if (modPowerForagerTier > 0) filled.add('powerForager');
+    if (modFarmingTrickeryTier > 0) filled.add('farmingTrickery');
+    if (modPlankBargainTier > 0) filled.add('plankBargain');
+    if (modSmeltingMagicTier > 0) filled.add('smeltingMagic');
+    if (modArrowCrafter) filled.add('arrowCrafter');
+    if (modDelicateManufacturing) filled.add('delicateManufacturing');
+    if (modGatherers) filled.add('gatherers');
+  }
+  if (importEquipment) {
+    if (modTool > 0) filled.add('tool');
+    if (modGearPieces > 0) filled.add('gear');
+    if (modJewelry0 > 0) filled.add('jewelry0');
+    if (modJewelry1 > 0) filled.add('jewelry1');
+    if (modJewelry2 > 0) filled.add('jewelry2');
+    if (modJewelry3 > 0) filled.add('jewelry3');
+    if (modCapeTier > 0) filled.add('cape');
+  }
+  lastImportedProfile = profile;
+  lastImportedClanProfile = clanProfile;
+  importedPlayerName = profile.username ?? null;
+  importFilledFields = filled;
+  clearTimeout(_importFillTimer);
+  _importFillTimer = setTimeout(() => { importFilledFields = new Set(); }, 2000);
+  closeImportModal();
+}
+
+async function doImportBySearch(name: string) {
+  const n = name.trim();
+  if (!n || importLoading) return;
+  importLoading = true;
+  importError = '';
+  try {
+    const profile = await fetchProfile(n);
+    if (!profile) { importError = 'Player not found'; return; }
+    const clanProfile = profile.guildName ? await fetchClanProfile(profile.guildName) : null;
+    doImport(profile, clanProfile);
+  } catch {
+    importError = 'Failed to load';
+  } finally {
+    importLoading = false;
+  }
+}
+
+async function doImportFromClient(client: ClientCard) {
+  if (!client.profile) return;
+  const clanProfile = client.profile.guildName ? await fetchClanProfile(client.profile.guildName) : null;
+  doImport(client.profile, clanProfile);
 }
 
 const TASK_IMAGE_OVERRIDE: Record<string, string> = {
@@ -284,6 +484,16 @@ function hideTip() { _tipVisible = false; }
   <div class="status">Loading tasks…</div>
 {:else}
 
+  {#if importedPlayerName}
+    <div class="import-active">
+      <span class="import-name">{importedPlayerName}</span>
+      <button class="import-refresh" on:click={refreshImport} disabled={refreshCooldown} title="Refresh player data">↺</button>
+      <button class="import-clear" on:click={clearImport}>×</button>
+    </div>
+  {:else}
+    <button class="top-import-btn" on:click={openImportModal}>Import Player Data</button>
+  {/if}
+
   <div class="field">
     <label class="label">Skill</label>
     <CustomSelect bind:value={selectedSkill} options={$profitSkills.map(s => ({ label: s, value: s, icon: `./skilltaskicons/${s}.png` }))} on:change={() => selectedTask = null} />
@@ -291,15 +501,6 @@ function hideTip() { _tipVisible = false; }
 
   <div class="field">
     <label class="label">Current Level</label>
-    {#if clientsWithSkill.length}
-      <div class="clients-row">
-        {#each clientsWithSkill as client}
-          <button class="client-chip" on:click={() => fillFromClient(client)}>
-            {client.playerName}
-          </button>
-        {/each}
-      </div>
-    {/if}
     <div class="mod-row">
       <span class="mod-label">Level</span>
       <input class="select" type="number" min="1" max="120" bind:value={currentLevel} />
@@ -312,28 +513,99 @@ function hideTip() { _tipVisible = false; }
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Your equipped tool tier. Higher tiers reduce task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Tool</span>
-        <CustomSelect bind:value={modTool} options={TOOL_TIERS} />
+        <CustomSelect bind:value={modTool} options={TOOL_TIERS} autofill={importFilledFields.has('tool')} />
       </div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Skill-specific gear pieces worn. Each piece reduces task time by 2%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gear pieces</span>
-        <CustomSelect bind:value={modGearPieces} options={GEAR_PIECES_OPTIONS} />
+        <CustomSelect bind:value={modGearPieces} options={GEAR_PIECES_OPTIONS} autofill={importFilledFields.has('gear')} />
       </div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Jewelry slots. Each piece reduces task time — Common 1.5%, Rare 3.5%, Exceptional 5%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Jewelry</span>
         <div class="jewelry-slots">
-          <CustomSelect bind:value={modJewelry0} options={JEWELRY_TYPES} compact />
-          <CustomSelect bind:value={modJewelry1} options={JEWELRY_TYPES} compact />
-          <CustomSelect bind:value={modJewelry2} options={JEWELRY_TYPES} compact />
-          <CustomSelect bind:value={modJewelry3} options={JEWELRY_TYPES} compact />
+          <CustomSelect bind:value={modJewelry0} options={JEWELRY_TYPES} compact autofill={importFilledFields.has('jewelry0')} />
+          <CustomSelect bind:value={modJewelry1} options={JEWELRY_TYPES} compact autofill={importFilledFields.has('jewelry1')} />
+          <CustomSelect bind:value={modJewelry2} options={JEWELRY_TYPES} compact autofill={importFilledFields.has('jewelry2')} />
+          <CustomSelect bind:value={modJewelry3} options={JEWELRY_TYPES} compact autofill={importFilledFields.has('jewelry3')} />
         </div>
       </div>
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Mastery cape tier. Reduces task completion time.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Mastery cape</span>
-        <CustomSelect bind:value={modCapeTier} options={CAPE_TIERS} />
+        <CustomSelect bind:value={modCapeTier} options={CAPE_TIERS} autofill={importFilledFields.has('cape')} />
       </div>
+
+      {#if GATHERING_SKILLS.includes(selectedSkill)}
+        <div class="mod-row" class:row-auto={importFilledFields.has('gatherers')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Clan upgrade that reduces task time by 5% for gathering skills.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gatherers upgrade</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGatherers} on:click={() => modGatherers = false}>No</button>
+            <button class="boost-btn" class:active={modGatherers} on:click={() => modGatherers = true}>Yes</button>
+          </div>
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Fishing'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to catch double fish, boosting output per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>The Fisherman</span>
+          <CustomSelect bind:value={modFishermanTier} options={FISHERMAN_TIERS} autofill={importFilledFields.has('fisherman')} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Woodcutting'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to chop double logs, boosting output per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>The Lumberjack</span>
+          <CustomSelect bind:value={modLumberjackTier} options={LUMBERJACK_TIERS} autofill={importFilledFields.has('lumberjack')} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Foraging'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to forage double loot, boosting output per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Power Forager</span>
+          <CustomSelect bind:value={modPowerForagerTier} options={POWER_FORAGER_TIERS} autofill={importFilledFields.has('powerForager')} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Farming'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier gives a chance to save your seeds, reducing effective input cost per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Farming Trickery</span>
+          <CustomSelect bind:value={modFarmingTrickeryTier} options={FARMING_TRICKERY_TIERS} autofill={importFilledFields.has('farmingTrickery')} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Carpentry'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Reduces the gold cost of all Carpentry tasks. T3 makes all tasks free.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Plank Bargain</span>
+          <CustomSelect bind:value={modPlankBargainTier} options={PLANK_BARGAIN_TIERS} autofill={importFilledFields.has('plankBargain')} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Smithing'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Gives a chance to save ore when smelting bars, reducing input cost. Does not apply to Astronomical or Otherworldly ore.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Smelting Magic</span>
+          <CustomSelect bind:value={modSmeltingMagicTier} options={SMELTING_MAGIC_TIERS} autofill={importFilledFields.has('smeltingMagic')} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Crafting'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('arrowCrafter')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Item unlock. Increases crafted arrow quantities by 10%. Only enable when viewing arrow tasks.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Arrow Crafter</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modArrowCrafter} on:click={() => modArrowCrafter = false}>No</button>
+            <button class="boost-btn" class:active={modArrowCrafter} on:click={() => modArrowCrafter = true}>Yes</button>
+          </div>
+        </div>
+        <div class="mod-row" class:row-auto={importFilledFields.has('delicateManufacturing')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Item unlock. Use 20% less flax when crafting non-astronomical fabrics. Only enable when viewing fabric tasks.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Delicate Mfg.</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modDelicateManufacturing} on:click={() => modDelicateManufacturing = false}>No</button>
+            <button class="boost-btn" class:active={modDelicateManufacturing} on:click={() => modDelicateManufacturing = true}>Yes</button>
+          </div>
+        </div>
+      {/if}
+
+      <div class="mod-gap"></div>
 
       {#if selectedSkill !== 'Agility'}
         <div class="mod-row">
@@ -344,79 +616,6 @@ function hideTip() { _tipVisible = false; }
           </div>
         </div>
       {/if}
-
-      {#if GATHERING_SKILLS.includes(selectedSkill)}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Clan upgrade that reduces task time by 5% for gathering skills.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gatherers upgrade</span>
-          <div class="boost-btns">
-            <button class="boost-btn" class:active={!modGatherers} on:click={() => modGatherers = false}>No</button>
-            <button class="boost-btn" class:active={modGatherers} on:click={() => modGatherers = true}>Yes</button>
-          </div>
-        </div>
-      {/if}
-
-      <div class="mod-gap"></div>
-
-      {#if selectedSkill === 'Fishing'}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to catch double fish, boosting output per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>The Fisherman</span>
-          <CustomSelect bind:value={modFishermanTier} options={FISHERMAN_TIERS} />
-        </div>
-      {/if}
-
-      {#if selectedSkill === 'Woodcutting'}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to chop double logs, boosting output per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>The Lumberjack</span>
-          <CustomSelect bind:value={modLumberjackTier} options={LUMBERJACK_TIERS} />
-        </div>
-      {/if}
-
-      {#if selectedSkill === 'Foraging'}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to forage double loot, boosting output per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Power Forager</span>
-          <CustomSelect bind:value={modPowerForagerTier} options={POWER_FORAGER_TIERS} />
-        </div>
-      {/if}
-
-      {#if selectedSkill === 'Farming'}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier gives a chance to save your seeds, reducing effective input cost per hour.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Farming Trickery</span>
-          <CustomSelect bind:value={modFarmingTrickeryTier} options={FARMING_TRICKERY_TIERS} />
-        </div>
-      {/if}
-
-      {#if selectedSkill === 'Carpentry'}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Reduces the gold cost of all Carpentry tasks. T3 makes all tasks free.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Plank Bargain</span>
-          <CustomSelect bind:value={modPlankBargainTier} options={PLANK_BARGAIN_TIERS} />
-        </div>
-      {/if}
-
-      {#if selectedSkill === 'Smithing'}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Gives a chance to save ore when smelting bars, reducing input cost. Does not apply to Astronomical or Otherworldly ore.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Smelting Magic</span>
-          <CustomSelect bind:value={modSmeltingMagicTier} options={SMELTING_MAGIC_TIERS} />
-        </div>
-      {/if}
-
-      {#if selectedSkill === 'Crafting'}
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Item unlock. Increases crafted arrow quantities by 10%. Only enable when viewing arrow tasks.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Arrow Crafter</span>
-          <div class="boost-btns">
-            <button class="boost-btn" class:active={!modArrowCrafter} on:click={() => modArrowCrafter = false}>No</button>
-            <button class="boost-btn" class:active={modArrowCrafter} on:click={() => modArrowCrafter = true}>Yes</button>
-          </div>
-        </div>
-        <div class="mod-row">
-          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Item unlock. Use 20% less flax when crafting non-astronomical fabrics. Only enable when viewing fabric tasks.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Delicate Mfg.</span>
-          <div class="boost-btns">
-            <button class="boost-btn" class:active={!modDelicateManufacturing} on:click={() => modDelicateManufacturing = false}>No</button>
-            <button class="boost-btn" class:active={modDelicateManufacturing} on:click={() => modDelicateManufacturing = true}>Yes</button>
-          </div>
-        </div>
-      {/if}
-
-      {#if hasSkillSpecific}<div class="mod-gap"></div>{/if}
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'How you buy inputs. Instant buys from the lowest seller. Slow places a buy order at the highest buyer price.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Buy speed</span>
@@ -518,6 +717,48 @@ function hideTip() { _tipVisible = false; }
 
 {/if}
 
+{#if importModalOpen}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="picker-backdrop" on:click={closeImportModal}></div>
+  <div class="import-panel">
+    <div class="picker-header">
+      <span class="picker-title">Import Player</span>
+      <button class="picker-close" on:click={closeImportModal}>×</button>
+    </div>
+    <div class="import-toggles">
+      <button class="import-toggle" class:active={importLevel} on:click={() => importLevel = !importLevel}>Level</button>
+      <button class="import-toggle" class:active={importUpgrades} on:click={() => importUpgrades = !importUpgrades}>Upgrades</button>
+      <button class="import-toggle" class:active={importEquipment} on:click={() => importEquipment = !importEquipment}>Equipment</button>
+    </div>
+    {#if clientsWithProfile.length > 0}
+      <div class="import-chips">
+        {#each clientsWithProfile as client}
+          <button class="chip" on:click={() => doImportFromClient(client)}>{client.playerName}</button>
+        {/each}
+      </div>
+    {/if}
+    <div class="import-search">
+      <div class="search-row">
+        <input
+          class="search-input"
+          placeholder="Search player…"
+          bind:value={importSearch}
+          on:keydown={(e) => e.key === 'Enter' && doImportBySearch(importSearch)}
+          disabled={importLoading}
+          use:focusOnMount
+        />
+        <button class="search-btn" on:click={() => doImportBySearch(importSearch)} disabled={importLoading}>
+          {importLoading ? '…' : 'Load'}
+        </button>
+      </div>
+      {#if importError}
+        <div class="search-error">{importError}</div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 {#if _tipVisible}
   <div class="tooltip" style="left:{Math.min(_tipX + 14, window.innerWidth - 185)}px; top:{_tipY + 18}px;">
     {_tipText}
@@ -584,13 +825,6 @@ function hideTip() { _tipVisible = false; }
   }
   .filter-item span { font-size: 11px; color: var(--text-muted); }
 
-  .clients-row { display: flex; flex-wrap: wrap; gap: 3px; }
-  .client-chip {
-    background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
-    color: var(--text-sub); font-size: 10px; font-weight: 600; padding: 2px 7px;
-    cursor: pointer; font-family: 'Nunito', sans-serif; transition: border-color 0.1s, color 0.1s; width: auto;
-  }
-  .client-chip:hover { border-color: var(--accent-md); color: var(--accent); }
 
   .modifiers { display: flex; flex-direction: column; gap: 5px; }
 
@@ -677,4 +911,111 @@ function hideTip() { _tipVisible = false; }
   .pos { color: var(--pos); }
   .neg { color: var(--neg); }
   .req-fail { color: #863131; }
+
+  .top-import-btn {
+    width: 100%; background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text-sub); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.3px; padding: 5px 0; cursor: pointer;
+    transition: border-color 0.15s, color 0.15s; font-family: 'Nunito', sans-serif;
+    margin-bottom: 14px;
+  }
+  .top-import-btn:hover { border-color: var(--accent-md); color: var(--accent); }
+
+  .import-active {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg-raised); border: 1px solid var(--accent-lo);
+    border-radius: 5px; padding: 5px 10px; margin-bottom: 14px;
+  }
+  .import-name {
+    flex: 1; font-size: 10px; font-weight: 700; color: var(--accent); letter-spacing: 0.3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .import-refresh {
+    background: none; border: none; color: var(--text-faint);
+    font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px; transition: color 0.15s;
+  }
+  .import-refresh:hover:not(:disabled) { color: var(--text); }
+  .import-refresh:disabled { opacity: 0.3; cursor: default; }
+  .import-clear {
+    background: none; border: none; color: var(--text-faint);
+    font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px; transition: color 0.15s;
+  }
+  .import-clear:hover { color: var(--text); }
+
+  .picker-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0.55); }
+
+  .import-panel {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 51; width: 260px; background: var(--bg-card);
+    border: 1px solid var(--accent-lo); border-radius: 8px;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+
+  .picker-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px 7px; border-bottom: 1px solid var(--divider); flex-shrink: 0;
+  }
+  .picker-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .picker-close {
+    background: none; border: none; color: var(--text-faint);
+    font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px; transition: color 0.15s;
+  }
+  .picker-close:hover { color: var(--text); }
+
+  .import-toggles { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--divider); }
+  .import-toggle {
+    flex: 1; font-family: 'Nunito', sans-serif; font-size: 10px; font-weight: 700;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text-muted); padding: 4px 0; cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+  .import-toggle:hover { border-color: var(--accent-lo); color: var(--text-sub); }
+  .import-toggle.active { border-color: var(--accent-md); background: var(--bg-raised); color: var(--accent); }
+
+  .import-chips {
+    display: flex; flex-wrap: wrap; gap: 5px;
+    padding: 8px 10px; border-bottom: 1px solid var(--divider);
+  }
+  .chip {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 20px;
+    color: var(--text-muted); font-size: 10px; font-weight: 600; font-family: 'Nunito', sans-serif;
+    padding: 3px 10px; cursor: pointer; transition: all 0.15s;
+  }
+  .chip:hover { border-color: var(--accent-lo); color: var(--text); }
+
+  .import-search { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .search-row { display: flex; gap: 6px; }
+  .search-input {
+    flex: 1; background: var(--bg-deep); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text); font-family: 'Nunito', sans-serif;
+    font-size: 11px; padding: 5px 8px; outline: none; box-sizing: border-box;
+    transition: border-color 0.15s; min-width: 0;
+  }
+  .search-input:focus { border-color: var(--accent-md); }
+  .search-input::placeholder { color: var(--text-faint); }
+  .search-input:disabled { opacity: 0.5; }
+  .search-btn {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text-muted); font-size: 10px; font-weight: 700; font-family: 'Nunito', sans-serif;
+    padding: 5px 10px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; width: auto;
+  }
+  .search-btn:hover:not(:disabled) { border-color: var(--accent-md); color: var(--accent); }
+  .search-btn:disabled { opacity: 0.5; cursor: default; }
+  .search-error { font-size: 10px; color: var(--neg); font-weight: 600; }
+
+  .import-done {
+    padding: 20px 14px 22px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  .done-check { font-size: 22px; color: var(--pos); line-height: 1; }
+  .done-fields { font-size: 11px; color: var(--text-sub); text-align: center; line-height: 1.7; }
+
+  @keyframes row-autofill-glow {
+    0%   { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 4px; }
+    60%  { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 4px; }
+    100% { background: transparent; }
+  }
+  .mod-row.row-auto { animation: row-autofill-glow 2s ease-out forwards; }
 </style>

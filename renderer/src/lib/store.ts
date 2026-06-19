@@ -295,6 +295,7 @@ function extractPlayerName(title: string): string | null {
 export interface ClanProfile {
   serializedUpgrades: string | null;
   repeatableUpgradeCounts: Record<string, number> | null;
+  houseId?: number;
 }
 
 export async function fetchProfile(playerName: string): Promise<PlayerProfile | null> {

@@ -3,6 +3,7 @@
     name: 'Combat Calculator',
     desc: 'DPS, hit chance, and time-to-kill',
     icon: './skilltaskicons/Combat.png',
+    author: 'Lucid',
   };
 </script>
 
@@ -72,6 +73,9 @@
   let activeIdx = 0;
   let nextId = 1;
   let expandedResults = new Set<number>();
+  let selectedDropItemId: number | null = null;
+  let dropTableOpen = false;
+  let dropTableSearch = '';
 
   let attackLevel   = 1;
   let strengthLevel = 1;
@@ -86,6 +90,9 @@
   let importSearch   = '';
   let importLoading  = false;
   let importError    = '';
+  let importedPlayerName: string | null = null;
+  let refreshCooldown = false;
+  let _refreshTimer: ReturnType<typeof setTimeout>;
 
   $: readyClients = $clients.filter(c => c.playerName && c.profile && !c.loading && !c.error);
 
@@ -129,6 +136,20 @@
   let monsterSearch = '';
   let monsterPickerOpen = false;
 
+  $: filteredLoot = (() => {
+    const q = dropTableSearch.trim().toLowerCase();
+    const loot = selectedMonster?.loot ?? [];
+    return loot
+      .filter(entry => {
+        if (!q) return true;
+        const item = $allItems.find(i => i.id === entry.itemId);
+        const name = item ? formatItemName(item.name).toLowerCase() : `#${entry.itemId}`;
+        return name.includes(q);
+      })
+      .slice()
+      .sort((a, b) => b.dropRate - a.dropRate);
+  })();
+
   $: filteredMonsters = (() => {
     const q = monsterSearch.trim().toLowerCase();
     return $allMonsters
@@ -153,14 +174,19 @@
     monsterSearch = '';
   }
 
+  function openDropTable() { dropTableOpen = true; dropTableSearch = ''; }
+  function closeDropTable() { dropTableOpen = false; }
+
   function selectMonster(m: Monster) {
     selectedMonster = m;
+    selectedDropItemId = null;
     monsterSearch = '';
     monsterPickerOpen = false;
   }
 
   function clearMonster() {
     selectedMonster = null;
+    selectedDropItemId = null;
     monsterSearch = '';
   }
 
@@ -260,7 +286,7 @@
     }
     if (importUpgrades) {
       const upgs = profile.upgrades ?? {};
-      upgMonsterHunter      = (upgs['upgrade_combat_quest_boost']   ?? 0) > 0;
+      upgMonsterHunter      = (upgs['monsterHunter']                 ?? 0) > 0;
       upgBountyHunter       = (upgs['upgrade_bounty_hunter']        ?? 0) > 0;
       upgPrinciplesOfCombat = (upgs['upgrade_principles_of_combat'] ?? 0) > 0;
       if (profile.guildName) {
@@ -294,7 +320,25 @@
       updated[activeIdx] = { ...updated[activeIdx], equipped, enchants };
       loadouts = updated;
     }
+    importedPlayerName = profile.username ?? null;
     closeImportModal();
+  }
+
+  function clearImport() {
+    importedPlayerName = null;
+    clearTimeout(_refreshTimer); refreshCooldown = false;
+  }
+
+  async function refreshImport() {
+    if (!importedPlayerName || refreshCooldown) return;
+    refreshCooldown = true;
+    clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(() => { refreshCooldown = false; }, 30000);
+    try {
+      const profile = await fetchProfile(importedPlayerName);
+      if (!profile) return;
+      await doImport(profile);
+    } catch {}
   }
 
   async function doImportBySearch(name: string) {
@@ -335,8 +379,8 @@
   const COMPLETIONIST_CAPE_TIERS: Record<number, number> = { 529: 1, 530: 2, 531: 3, 532: 4 };
 
   const WEAKNESS_LABELS: Record<number, string> = {
-    1: 'Stab', 2: 'Slash', 3: 'Crush', 4: 'Pound',
-    5: 'Arch', 6: 'Magic', 7: 'Fire', 8: 'All',
+    1: 'Stab', 2: 'Slash', 3: 'Pound', 4: 'Crush',
+    5: 'Arch', 6: 'Magic', 7: 'Varies', 8: 'All',
   };
 
   function getWeakness(m: Monster): string | null {
@@ -348,6 +392,14 @@
 
   function formatMonsterName(name: string): string {
     return name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  }
+
+  function formatDropTime(kph: number, dropRate: number): string {
+    const hours = 1 / dropRate / kph;
+    if (hours < 1 / 60) return `${(hours * 3600).toFixed(0)}s`;
+    if (hours < 1) return `${(hours * 60).toFixed(1)}m`;
+    if (hours < 24) return `${hours.toFixed(1)}h`;
+    return `${(hours / 24).toFixed(1)}d`;
   }
 
   // Potions
@@ -617,7 +669,15 @@ function calcAugmented(level: number, bonus: number): number {
 
 <div class="container">
 
-  <button class="top-import-btn" on:click={openImportModal}>Import Player Data</button>
+  {#if importedPlayerName}
+    <div class="import-active">
+      <span class="import-name">{importedPlayerName}</span>
+      <button class="import-refresh" on:click={refreshImport} disabled={refreshCooldown} title="Refresh player data">↺</button>
+      <button class="import-clear" on:click={clearImport}>×</button>
+    </div>
+  {:else}
+    <button class="top-import-btn" on:click={openImportModal}>Import Player Data</button>
+  {/if}
 
   <!-- Player: Skills + Buffs -->
   <div class="section">
@@ -832,6 +892,25 @@ function calcAugmented(level: number, bonus: number): number {
                 <span class="enemy-stat-val">{selectedMonster.magicLevel}</span>
               </div>
             </div>
+            {#if selectedMonster.loot.length > 0}
+              <button
+                class="drop-table-btn"
+                class:drop-table-has-target={selectedDropItemId !== null}
+                on:click={openDropTable}
+              >
+                {#if selectedDropItemId !== null}
+                  {@const item = $allItems.find(i => i.id === selectedDropItemId)}
+                  <span class="drop-table-btn-name">{item ? formatItemName(item.name) : `#${selectedDropItemId}`}</span>
+                  <!-- svelte-ignore a11y-click-events-have-key-events -->
+                  <span class="drop-table-btn-clear" role="button" on:click|stopPropagation={() => selectedDropItemId = null}>×</span>
+                {:else}
+                  <span>Drop Table</span>
+                  <svg class="drop-table-chevron" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M2 4.5L6 8.5L10 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                {/if}
+              </button>
+            {/if}
           </div>
         </div>
       {:else}
@@ -872,6 +951,22 @@ function calcAugmented(level: number, bonus: number): number {
             <span class="result-value">{d.dps > 0 ? d.dps.toFixed(2) : '—'}</span>
           </div>
         </div>
+        {#if selectedDropItemId !== null}
+          {@const targetDrop = selectedMonster?.loot.find(l => l.itemId === selectedDropItemId)}
+          {#if targetDrop}
+            <div class="result-drop-target">
+              <span class="result-drop-item-name">{formatItemName($allItems.find(i => i.id === selectedDropItemId)?.name ?? `#${selectedDropItemId}`)}</span>
+              {#if d.kph > 0}
+                <div class="result-drop-right">
+                  <span class="result-drop-kills">{Math.round(1 / targetDrop.dropRate).toLocaleString()} kills</span>
+                  <span class="result-drop-time">{formatDropTime(d.kph, targetDrop.dropRate)}</span>
+                </div>
+              {:else}
+                <span class="result-drop-time">—</span>
+              {/if}
+            </div>
+          {/if}
+        {/if}
         {#if expandedResults.has(i)}
           <div class="result-details">
             <div class="result-detail-cell">
@@ -1038,6 +1133,50 @@ function calcAugmented(level: number, bonus: number): number {
   </div>
 {/if}
 
+{#if dropTableOpen && selectedMonster}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="picker-backdrop" on:click={closeDropTable}></div>
+  <div class="picker-panel">
+    <div class="picker-header">
+      <span class="picker-title">Drop Table — {formatMonsterName(selectedMonster.name)}</span>
+      <button class="picker-close" on:click={closeDropTable}>×</button>
+    </div>
+    <div class="picker-search-wrap">
+      <input
+        class="picker-search"
+        placeholder="Search drops…"
+        bind:value={dropTableSearch}
+        use:focusOnMount
+      />
+    </div>
+    <div class="picker-list">
+      <button class="picker-item picker-item-clear" on:click={() => { selectedDropItemId = null; closeDropTable(); }}>Clear selection</button>
+      {#each filteredLoot as entry (entry.itemId)}
+        {@const item = $allItems.find(i => i.id === entry.itemId)}
+        {@const name = item ? formatItemName(item.name) : `#${entry.itemId}`}
+        {@const rawName = item?.name ?? ''}
+        {@const isSelected = selectedDropItemId === entry.itemId}
+        <button
+          class="picker-item loot-picker-item"
+          class:loot-picker-selected={isSelected}
+          on:click={() => { selectedDropItemId = isSelected ? null : entry.itemId; closeDropTable(); }}
+        >
+          <img class="picker-item-icon" src="./itemicons/{rawName}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
+          <span class="loot-picker-name">{name}</span>
+          <span class="loot-rate">{entry.dropRate >= 0.01 ? (entry.dropRate * 100).toFixed(1) + '%' : '1 in ' + Math.round(1 / entry.dropRate).toLocaleString()}</span>
+          {#if entry.avgAmount > 1}
+            <span class="loot-amt">×{Number.isInteger(entry.avgAmount) ? entry.avgAmount : entry.avgAmount.toFixed(1)}</span>
+          {/if}
+        </button>
+      {/each}
+      {#if filteredLoot.length === 0}
+        <div class="picker-empty">No drops found</div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
 <style>
   .container {
     display: flex;
@@ -1051,17 +1190,38 @@ function calcAugmented(level: number, bonus: number): number {
     width: 100%;
     background: var(--bg-raised);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--text-sub);
     font-family: 'Nunito', sans-serif;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    padding: 7px 12px;
+    padding: 5px 10px;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s;
     letter-spacing: 0.3px;
   }
   .top-import-btn:hover { border-color: var(--accent-md); color: var(--accent); }
+
+  .import-active {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg-raised); border: 1px solid var(--accent-lo);
+    border-radius: 5px; padding: 5px 10px;
+  }
+  .import-name {
+    flex: 1; font-size: 10px; font-weight: 700; color: var(--accent); letter-spacing: 0.3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .import-refresh {
+    background: none; border: none; color: var(--text-faint);
+    font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px; transition: color 0.15s;
+  }
+  .import-refresh:hover:not(:disabled) { color: var(--text); }
+  .import-refresh:disabled { opacity: 0.3; cursor: default; }
+  .import-clear {
+    background: none; border: none; color: var(--text-faint);
+    font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px; transition: color 0.15s;
+  }
+  .import-clear:hover { color: var(--text); }
 
   /* ── Player section ── */
   .section {
@@ -2101,5 +2261,123 @@ function calcAugmented(level: number, bonus: number): number {
     width: 100%;
     object-fit: contain;
     padding: 1px 2px 2px;
+  }
+
+  /* ── Drop table button (inside enemy card) ── */
+  .drop-table-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-faint);
+    font-family: 'Nunito', sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 3px 7px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    text-align: left;
+  }
+  .drop-table-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
+  .drop-table-btn.drop-table-has-target { border-color: var(--accent-lo); color: var(--accent); }
+
+  .drop-table-btn-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .drop-table-btn-clear {
+    flex-shrink: 0;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--text-faint);
+    transition: color 0.15s;
+  }
+  .drop-table-btn-clear:hover { color: var(--neg); }
+
+  .drop-table-chevron {
+    width: 9px;
+    height: 9px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  /* ── Loot picker modal items ── */
+  .loot-picker-item { gap: 7px; }
+
+  .loot-picker-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .loot-picker-selected { background: var(--bg-raised) !important; color: var(--accent) !important; }
+  .loot-picker-selected .loot-rate { color: var(--accent); }
+
+  .loot-rate {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .loot-amt {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+
+  /* ── Result drop target ── */
+  .result-drop-target {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 8px 4px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .result-drop-item-name {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--accent);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .result-drop-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-left: 8px;
+  }
+
+  .result-drop-kills {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+
+  .result-drop-time {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
   }
 </style>

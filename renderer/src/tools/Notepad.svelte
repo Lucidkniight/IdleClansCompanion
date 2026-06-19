@@ -3,6 +3,7 @@
     name: 'Notepad',
     desc: 'Jot down notes, saved locally',
     icon: '📝',
+    author: 'Lucid',
   };
 </script>
 

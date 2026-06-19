@@ -3,6 +3,7 @@
     name: 'Clan Cup',
     desc: 'Cup leaderboards and clan standings',
     icon: './skilltaskicons/ClanCup.png',
+    author: 'Lucid',
   };
 </script>
 
@@ -187,7 +188,21 @@ function clearSearch() {
   searchInput = ''; standings = []; clanError = false;
 }
 
-onMount(loadLeaderboard);
+let _rootEl: HTMLElement;
+
+onMount(() => {
+  loadLeaderboard();
+
+  const parent = _rootEl?.closest('.tool-body');
+  if (!parent) return;
+  const obs = new MutationObserver(() => {
+    if (!parent.classList.contains('tab-hidden') && lbError && !lbLoading) {
+      loadLeaderboard();
+    }
+  });
+  obs.observe(parent, { attributes: true, attributeFilter: ['class'] });
+  return () => obs.disconnect();
+});
 </script>
 
 <svelte:window on:click={() => (catDropOpen = false)} />
@@ -203,7 +218,7 @@ onMount(loadLeaderboard);
   <div class="dev-row"><span class="dev-key">Standings API</span><span class="dev-val">/ClanCup/standings/{'{name}'}</span></div>
 </DevPanel>
 
-<div class="cup-search-wrap">
+<div class="cup-search-wrap" bind:this={_rootEl}>
   <input
     class="cup-input"
     placeholder="Search clan…"
@@ -234,7 +249,7 @@ onMount(loadLeaderboard);
             <button
               class="cat-item"
               class:active={selectedCat === item.value}
-              on:click|stopPropagation={() => { selectedCat = item.value; catDropOpen = false; }}
+              on:click|stopPropagation={() => { selectedCat = item.value; catDropOpen = false; if (lbError) loadLeaderboard(); }}
             >{item.label}</button>
           {/each}
         {/each}
@@ -245,7 +260,10 @@ onMount(loadLeaderboard);
   {#if lbLoading}
     <div class="cup-status">Loading…</div>
   {:else if lbError}
-    <div class="cup-status error">Could not load leaderboard</div>
+    <div class="cup-status error">
+      Could not load leaderboard
+      <button class="cup-retry" on:click={loadLeaderboard}>Retry</button>
+    </div>
   {:else}
     <div class="cup-table-head">
       <span>#</span>
@@ -373,8 +391,15 @@ onMount(loadLeaderboard);
   .cat-item:hover { background: var(--bg-card); color: var(--text); }
   .cat-item.active { color: var(--accent); }
 
-  .cup-status { text-align: center; font-size: 11px; color: var(--text-faint); padding: 16px 0; }
+  .cup-status { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; font-size: 11px; color: var(--text-faint); padding: 16px 0; }
   .cup-status.error { color: #7a3a3a; }
+  .cup-retry {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text-sub); font-size: 11px; font-weight: 700;
+    padding: 5px 14px; cursor: pointer; font-family: 'Nunito', sans-serif;
+    transition: border-color 0.1s, color 0.1s; width: auto;
+  }
+  .cup-retry:hover { border-color: var(--accent-md); color: var(--accent); }
 
   .cup-table-head {
     display: grid;

@@ -18,6 +18,7 @@ interface ToolMeta {
   name: string;
   desc: string;
   icon: string;
+  author?: string;
 }
 
 interface ToolModule {
@@ -59,6 +60,20 @@ $: filteredTools = toolSearch.trim() === ''
       const q = toolSearch.toLowerCase();
       return t.toolMeta.name.toLowerCase().includes(q) || t.toolMeta.desc.toLowerCase().includes(q);
     });
+
+const FAV_KEY = 'icc-tool-favourites';
+let favouriteNames: Set<string> = new Set(JSON.parse(localStorage.getItem(FAV_KEY) ?? '[]'));
+
+function toggleFavourite(name: string) {
+  if (favouriteNames.has(name)) favouriteNames.delete(name);
+  else favouriteNames.add(name);
+  favouriteNames = new Set(favouriteNames);
+  localStorage.setItem(FAV_KEY, JSON.stringify([...favouriteNames]));
+}
+
+$: filteredFavourites = filteredTools.filter(t => favouriteNames.has(t.toolMeta.name));
+$: filteredOfficial   = filteredTools.filter(t => !t.toolMeta.author || t.toolMeta.author === 'Lucid').filter(t => !favouriteNames.has(t.toolMeta.name));
+$: filteredCommunity  = filteredTools.filter(t => t.toolMeta.author && t.toolMeta.author !== 'Lucid').filter(t => !favouriteNames.has(t.toolMeta.name));
 
 // ── UI state ──────────────────────────────────────────────────────────────────
 type Tab = 'clients' | 'tools';
@@ -106,8 +121,24 @@ async function submitFeedback() {
   track('feedback_submitted', { type: feedbackType });
 }
 
-function wipeData() {
-  localStorage.clear();
+const WIPE_CATS = [
+  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, launcher',                   keys: ['s-theme','s-aot','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out'] },
+  { id: 'alerts',    label: 'Price Alerts',     desc: 'Alert rules and triggered notification history',                 keys: ['icc-price-alerts','icc-triggered-alerts'] },
+  { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], prefix: 'icc-tracker-snap-' },
+  { id: 'notepad',   label: 'Notepad',          desc: 'All saved notes',                                               keys: ['notepad'] },
+  { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-xp-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent'] },
+];
+let wipeSelected: Set<string> = new Set(WIPE_CATS.map(c => c.id));
+
+function wipeSelectedData() {
+  for (const cat of WIPE_CATS) {
+    if (!wipeSelected.has(cat.id)) continue;
+    cat.keys.forEach(k => localStorage.removeItem(k));
+    if (cat.prefix) {
+      Object.keys(localStorage).filter(k => k.startsWith(cat.prefix!)).forEach(k => localStorage.removeItem(k));
+    }
+  }
+  showWipeModal = false;
   location.reload();
 }
 
@@ -192,6 +223,37 @@ function previewAlertSound() {
 function openAlertItem(alert: TriggeredAlert) {
   showAlerts = false;
   navigate('Market', String(alert.itemId));
+}
+
+// ── Game launcher ─────────────────────────────────────────────────────────────
+let settingGameExe: string = localStorage.getItem('s-game-exe') ?? '';
+let settingLaunchCount: number = parseInt(localStorage.getItem('s-launch-count') ?? '1');
+let exeError: string | null = null;
+
+$: localStorage.setItem('s-game-exe', settingGameExe);
+$: localStorage.setItem('s-launch-count', String(settingLaunchCount));
+
+async function browseExe() {
+  exeError = null;
+  const result = await (window as any).electronAPI.browseExe();
+  if (result.path) {
+    settingGameExe = result.path;
+  } else if (result.error) {
+    exeError = result.error;
+  }
+}
+
+let showLaunchSetupModal = false;
+let showLaunchConfirmModal = false;
+
+function launchClients() {
+  if (!settingGameExe) { showLaunchSetupModal = true; return; }
+  showLaunchConfirmModal = true;
+}
+
+function confirmLaunch() {
+  showLaunchConfirmModal = false;
+  (window as any).electronAPI.launchGameClients(settingGameExe, settingLaunchCount);
 }
 
 // ── Dev mode ──────────────────────────────────────────────────────────────────
@@ -517,6 +579,34 @@ onDestroy(() => {
       </div>
 
       <div class="settings-group">
+        <div class="settings-group-label">Game Client</div>
+        <div class="settings-row">
+          <span class="settings-label">Executable</span>
+          {#if settingGameExe}
+            <div class="exe-selected">
+              <span class="exe-path" title={settingGameExe}>{settingGameExe.split(/[\\/]/).pop()}</span>
+              <button class="exe-clear-btn" on:click={() => settingGameExe = ''} title="Clear">✕</button>
+            </div>
+          {:else}
+            <button class="feedback-btn" on:click={browseExe}>Browse…</button>
+          {/if}
+        </div>
+        {#if exeError}
+          <div class="settings-row exe-error-row">
+            <span class="exe-error">{exeError}</span>
+          </div>
+        {/if}
+        <div class="settings-row">
+          <span class="settings-label">Launch count</span>
+          <div class="count-stepper">
+            <button class="stepper-btn" on:click={() => settingLaunchCount = Math.max(1, settingLaunchCount - 1)}>−</button>
+            <span class="stepper-val">{settingLaunchCount}</span>
+            <button class="stepper-btn" on:click={() => settingLaunchCount = Math.min(8, settingLaunchCount + 1)}>+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-group">
         <div class="settings-group-label">Support</div>
         <div class="settings-row">
           <span class="settings-label">Report a bug</span>
@@ -549,8 +639,8 @@ onDestroy(() => {
           </button>
         </div>
         <div class="settings-row">
-          <span class="settings-label">Wipe all app data</span>
-          <button class="wipe-btn" on:click={() => showWipeModal = true}>Wipe</button>
+          <span class="settings-label">Wipe app data</span>
+          <button class="wipe-btn" on:click={() => { wipeSelected = new Set(WIPE_CATS.map(c => c.id)); showWipeModal = true; }}>Wipe…</button>
         </div>
       </div>
     </div>
@@ -589,14 +679,27 @@ onDestroy(() => {
     <div class="clients-tab" class:tab-hidden={activeTab !== 'clients' || showSettings || showAlerts}>
       <div class="section-header">
         <span>Accounts</span>
-<button class="scan-btn" on:click={scan} title="Rescan">↺</button>
+        <div class="header-action-btns">
+          <button
+            class="scan-btn"
+            on:click={launchClients}
+            title={settingGameExe ? `Launch ${settingLaunchCount} client${settingLaunchCount !== 1 ? 's' : ''}` : 'Launch game client'}
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+          <button class="scan-btn" on:click={scan} title="Rescan">↺</button>
+        </div>
       </div>
 
       {#if $clients.length === 0}
         <div class="empty">
           <div class="empty-icon">⚔</div>
           <p>No clients found</p>
-          <span>Open Idle Clans and click ↺</span>
+          {#if settingGameExe}
+            <span>Press ▶ to launch a client, or click ↺ to rescan</span>
+          {:else}
+            <span>Open Idle Clans and click ↺, or set up the launcher in Settings</span>
+          {/if}
         </div>
       {:else}
         <div class="cards">
@@ -697,20 +800,66 @@ onDestroy(() => {
           bind:value={toolSearch}
         />
         <div class="calc-list">
-          {#each filteredTools as tool}
-            <button class="calc-item" on:click={() => openTool(tool)}>
-              {#if tool.toolMeta.icon.startsWith('./')}
-                <img class="calc-item-icon-img" src={tool.toolMeta.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
-              {:else}
-                <span class="calc-item-icon">{tool.toolMeta.icon}</span>
-              {/if}
-              <div class="calc-item-info">
-                <span class="calc-item-name">{tool.toolMeta.name}</span>
-                <span class="calc-item-desc">{tool.toolMeta.desc}</span>
+          {#if filteredFavourites.length > 0}
+            <div class="calc-section-label">Favourites</div>
+            {#each filteredFavourites as tool}
+              <div class="calc-item-wrap">
+                <button class="calc-item" class:calc-item-community={tool.toolMeta.author && tool.toolMeta.author !== 'Lucid'} on:click={() => openTool(tool)}>
+                  {#if tool.toolMeta.icon.startsWith('./')}
+                    <img class="calc-item-icon-img" src={tool.toolMeta.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
+                  {:else}
+                    <span class="calc-item-icon">{tool.toolMeta.icon}</span>
+                  {/if}
+                  <div class="calc-item-info">
+                    <span class="calc-item-name">{tool.toolMeta.name}{#if tool.toolMeta.author && tool.toolMeta.author !== 'Lucid'}<span class="calc-item-author"> by {tool.toolMeta.author}</span>{/if}</span>
+                    <span class="calc-item-desc">{tool.toolMeta.desc}</span>
+                  </div>
+                </button>
+                <button class="fav-btn fav-active" on:click={() => toggleFavourite(tool.toolMeta.name)} title="Remove from favourites">★</button>
               </div>
-              <span class="calc-item-arrow">›</span>
-            </button>
-          {/each}
+            {/each}
+          {/if}
+
+          {#if filteredOfficial.length > 0}
+            {#if filteredCommunity.length > 0 || filteredFavourites.length > 0}<div class="calc-section-label">Official</div>{/if}
+            {#each filteredOfficial as tool}
+              <div class="calc-item-wrap">
+                <button class="calc-item" on:click={() => openTool(tool)}>
+                  {#if tool.toolMeta.icon.startsWith('./')}
+                    <img class="calc-item-icon-img" src={tool.toolMeta.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
+                  {:else}
+                    <span class="calc-item-icon">{tool.toolMeta.icon}</span>
+                  {/if}
+                  <div class="calc-item-info">
+                    <span class="calc-item-name">{tool.toolMeta.name}</span>
+                    <span class="calc-item-desc">{tool.toolMeta.desc}</span>
+                  </div>
+                </button>
+                <button class="fav-btn" on:click={() => toggleFavourite(tool.toolMeta.name)} title="Add to favourites">★</button>
+              </div>
+            {/each}
+          {/if}
+
+          {#if filteredCommunity.length > 0}
+            <div class="calc-section-label">Community</div>
+            {#each filteredCommunity as tool}
+              <div class="calc-item-wrap">
+                <button class="calc-item calc-item-community" on:click={() => openTool(tool)}>
+                  {#if tool.toolMeta.icon.startsWith('./')}
+                    <img class="calc-item-icon-img" src={tool.toolMeta.icon} alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
+                  {:else}
+                    <span class="calc-item-icon">{tool.toolMeta.icon}</span>
+                  {/if}
+                  <div class="calc-item-info">
+                    <span class="calc-item-name">{tool.toolMeta.name}<span class="calc-item-author"> by {tool.toolMeta.author}</span></span>
+                    <span class="calc-item-desc">{tool.toolMeta.desc}</span>
+                  </div>
+                </button>
+                <button class="fav-btn" on:click={() => toggleFavourite(tool.toolMeta.name)} title="Add to favourites">★</button>
+              </div>
+            {/each}
+          {/if}
+
           {#if filteredTools.length === 0}
             <div class="tool-no-results">No tools match "{toolSearch}"</div>
           {/if}
@@ -731,14 +880,64 @@ onDestroy(() => {
   </div>
 </div>
 
+{#if showLaunchSetupModal}
+  <div class="modal-overlay" role="presentation" on:click={() => showLaunchSetupModal = false}>
+    <div class="modal" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+      <div class="modal-title">Game Client Not Set</div>
+      <p class="modal-body">To launch game clients from here, you need to set the path to your game executable in Settings under <strong>Game Client</strong>.</p>
+      <div class="modal-actions">
+        <button class="modal-cancel" on:click={() => showLaunchSetupModal = false}>Cancel</button>
+        <button class="modal-submit" on:click={() => { showLaunchSetupModal = false; showSettings = true; showAlerts = false; }}>Go to Settings</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showLaunchConfirmModal}
+  <div class="modal-overlay" role="presentation" on:click={() => showLaunchConfirmModal = false}>
+    <div class="modal" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+      <div class="modal-title">Launch Game Clients</div>
+      <p class="modal-body">
+        This will open <strong>{settingLaunchCount} instance{settingLaunchCount !== 1 ? 's' : ''}</strong> of:<br/>
+        <span class="modal-path">{settingGameExe}</span>
+      </p>
+      <div class="modal-actions">
+        <button class="modal-cancel" on:click={() => showLaunchConfirmModal = false}>Cancel</button>
+        <button class="modal-submit" on:click={confirmLaunch}>Launch</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if showWipeModal}
   <div class="modal-overlay" role="presentation" on:click={() => showWipeModal = false}>
     <div class="modal" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
-      <div class="modal-title">Wipe App Data</div>
-      <p class="modal-body">This will permanently delete all app data, including saved settings and your Notepad contents. This cannot be undone.</p>
+      <div class="modal-title">Wipe Data</div>
+      <div class="wipe-cats">
+        {#each WIPE_CATS as cat}
+          <label class="wipe-cat-row">
+            <input
+              type="checkbox"
+              class="wipe-checkbox"
+              checked={wipeSelected.has(cat.id)}
+              on:change={() => {
+                if (wipeSelected.has(cat.id)) wipeSelected.delete(cat.id);
+                else wipeSelected.add(cat.id);
+                wipeSelected = new Set(wipeSelected);
+              }}
+            />
+            <div class="wipe-cat-info">
+              <span class="wipe-cat-label">{cat.label}</span>
+              <span class="wipe-cat-desc">{cat.desc}</span>
+            </div>
+          </label>
+        {/each}
+      </div>
       <div class="modal-actions">
         <button class="modal-cancel" on:click={() => showWipeModal = false}>Cancel</button>
-        <button class="modal-wipe" on:click={wipeData}>Wipe</button>
+        <button class="modal-wipe" disabled={wipeSelected.size === 0} on:click={wipeSelectedData}>
+          Wipe {wipeSelected.size > 0 ? `(${wipeSelected.size})` : ''}
+        </button>
       </div>
     </div>
   </div>
@@ -796,8 +995,8 @@ onDestroy(() => {
     --text-hi:    #d0d4e8;
     --text-sub:   #8890b0;
     --text-muted: #555870;
-    --text-dim:   #565c7a;
-    --text-faint: #484e68;
+    --text-dim:   #6a7090;
+    --text-faint: #5c6280;
     --accent:     #e8b84b;
     --accent-lo:  rgba(232,184,75,0.17);
     --accent-md:  rgba(232,184,75,0.33);
@@ -818,8 +1017,8 @@ onDestroy(() => {
     --text-hi:    #14162a;
     --text-sub:   #42486a;
     --text-muted: #5c6280;
-    --text-dim:   #7880a0;
-    --text-faint: #9098b4;
+    --text-dim:   #6a72a0;
+    --text-faint: #7880a8;
     --accent:     #2d6278;
     --accent-lo:  rgba(45,98,120,0.12);
     --accent-md:  rgba(45,98,120,0.28);
@@ -840,8 +1039,8 @@ onDestroy(() => {
     --text-hi:    #d2d0dc;
     --text-sub:   #8a88a4;
     --text-muted: #565468;
-    --text-dim:   #545070;
-    --text-faint: #464260;
+    --text-dim:   #686488;
+    --text-faint: #5a5678;
     --accent:     #cc78c0;
     --accent-lo:  rgba(204,120,192,0.17);
     --accent-md:  rgba(204,120,192,0.33);
@@ -862,8 +1061,8 @@ onDestroy(() => {
     --text-hi:    #ccd0d8;
     --text-sub:   #828a98;
     --text-muted: #525860;
-    --text-dim:   #525a66;
-    --text-faint: #444e58;
+    --text-dim:   #666e80;
+    --text-faint: #586270;
     --accent:     #7090aa;
     --accent-lo:  rgba(112,144,170,0.17);
     --accent-md:  rgba(112,144,170,0.33);
@@ -884,8 +1083,8 @@ onDestroy(() => {
     --text-hi:    #ced2cc;
     --text-sub:   #868e82;
     --text-muted: #545a50;
-    --text-dim:   #545c50;
-    --text-faint: #464e42;
+    --text-dim:   #687065;
+    --text-faint: #5a6258;
     --accent:     #68b86c;
     --accent-lo:  rgba(104,184,108,0.17);
     --accent-md:  rgba(104,184,108,0.33);
@@ -906,8 +1105,8 @@ onDestroy(() => {
     --text-hi:    #ccd0d8;
     --text-sub:   #7a8898;
     --text-muted: #4e5c6c;
-    --text-dim:   #4e5a6c;
-    --text-faint: #40505e;
+    --text-dim:   #627080;
+    --text-faint: #556474;
     --accent:     #4ea8c8;
     --accent-lo:  rgba(78,168,200,0.17);
     --accent-md:  rgba(78,168,200,0.33);
@@ -928,8 +1127,8 @@ onDestroy(() => {
     --text-hi:    #ccccdc;
     --text-sub:   #8080a0;
     --text-muted: #505068;
-    --text-dim:   #505070;
-    --text-faint: #42425e;
+    --text-dim:   #646488;
+    --text-faint: #585874;
     --accent:     #7878c0;
     --accent-lo:  rgba(120,120,192,0.17);
     --accent-md:  rgba(120,120,192,0.33);
@@ -950,8 +1149,8 @@ onDestroy(() => {
     --text-hi:    #d4cecc;
     --text-sub:   #907a82;
     --text-muted: #5c5054;
-    --text-dim:   #5a4e54;
-    --text-faint: #4c4048;
+    --text-dim:   #6e6268;
+    --text-faint: #60545c;
     --accent:     #c84060;
     --accent-lo:  rgba(200,64,96,0.17);
     --accent-md:  rgba(200,64,96,0.33);
@@ -972,8 +1171,8 @@ onDestroy(() => {
     --text-hi:    #d4d0c8;
     --text-sub:   #908878;
     --text-muted: #5c5448;
-    --text-dim:   #5a5248;
-    --text-faint: #4c443a;
+    --text-dim:   #6e665e;
+    --text-faint: #605850;
     --accent:     #cc4030;
     --accent-lo:  rgba(204,64,48,0.17);
     --accent-md:  rgba(204,64,48,0.33);
@@ -1266,7 +1465,58 @@ onDestroy(() => {
   .calc-item-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .calc-item-name { font-size: 12px; font-weight: 700; color: var(--text-hi); }
   .calc-item-desc { font-size: 10px; color: var(--text-faint); }
-  .calc-item-arrow { font-size: 18px; color: var(--text-faint); }
+  .calc-item-wrap { position: relative; }
+  .calc-item-wrap .calc-item { padding-right: 30px; }
+  .fav-btn {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; cursor: pointer; padding: 4px 3px;
+    font-size: 16px; line-height: 1; color: var(--text-faint);
+    opacity: 0; transition: opacity 0.15s, color 0.15s; width: auto; z-index: 1;
+  }
+  .calc-item-wrap:hover .fav-btn { opacity: 1; }
+  .fav-btn.fav-active { color: var(--accent); opacity: 1; }
+
+  .calc-section-label {
+    font-size: 8px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-faint); padding: 6px 4px 2px; display: flex; align-items: center; gap: 6px;
+  }
+  .calc-section-label::before, .calc-section-label::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .calc-item-community { border-style: dashed; }
+  .calc-item-author {
+    font-size: 9px; font-weight: 400; color: var(--text-faint); margin-left: 4px;
+  }
+
+  .header-action-btns { display: flex; align-items: center; gap: 4px; }
+
+  .exe-selected {
+    display: flex; align-items: center; gap: 4px;
+    max-width: 160px; min-width: 0;
+  }
+  .exe-path {
+    font-size: 10px; color: var(--text-sub); font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0;
+  }
+  .exe-clear-btn {
+    background: none; border: none; color: var(--text-faint); font-size: 10px;
+    cursor: pointer; padding: 1px 3px; line-height: 1; flex-shrink: 0;
+    transition: color 0.1s;
+  }
+  .exe-clear-btn:hover { color: var(--neg); }
+  .exe-error-row { padding-top: 4px; padding-bottom: 6px; }
+  .exe-error { font-size: 10px; color: var(--neg); font-weight: 600; }
+
+  .count-stepper { display: flex; align-items: center; gap: 6px; }
+  .stepper-btn {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-sub); font-size: 13px; line-height: 1;
+    width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: border-color 0.1s, color 0.1s; padding: 0;
+  }
+  .stepper-btn:hover { border-color: var(--accent-md); color: var(--accent); }
+  .stepper-val { font-size: 12px; font-weight: 700; color: var(--text-hi); min-width: 14px; text-align: center; }
 
   .clients-tab { padding-right: 10px; }
   .settings-content { padding-right: 10px; }
@@ -1295,6 +1545,11 @@ onDestroy(() => {
     display: flex; flex-direction: column; gap: 12px;
   }
   .modal-title { font-size: 13px; font-weight: 700; color: var(--text-hi); }
+  .modal-path {
+    display: block; margin-top: 6px;
+    font-size: 10px; color: var(--text-dim); font-weight: 600;
+    word-break: break-all;
+  }
   .modal-body { font-size: 11px; color: var(--text-sub); line-height: 1.6; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .modal-cancel {
@@ -1308,7 +1563,33 @@ onDestroy(() => {
     font-size: 11px; font-weight: 700; padding: 5px 14px; border-radius: 5px;
     cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
   }
-  .modal-wipe:hover { background: rgba(224, 85, 85, 0.28); }
+  .modal-wipe:hover:not(:disabled) { background: rgba(224, 85, 85, 0.28); }
+  .modal-wipe:disabled { opacity: 0.35; cursor: default; }
+
+  .wipe-cats { display: flex; flex-direction: column; gap: 2px; }
+  .wipe-cat-row {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 7px 10px; border-radius: 6px; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .wipe-cat-row:hover { background: var(--bg-raised); }
+  .wipe-checkbox {
+    appearance: none; -webkit-appearance: none;
+    width: 13px; height: 13px; flex-shrink: 0; margin-top: 2px;
+    border: 1px solid var(--border); border-radius: 3px;
+    background: var(--bg-raised); cursor: pointer;
+    position: relative; transition: all 0.15s;
+  }
+  .wipe-checkbox:checked { background: #e05555; border-color: #e05555; }
+  .wipe-checkbox:checked::after {
+    content: ''; position: absolute;
+    left: 3px; top: 0px; width: 4px; height: 8px;
+    border: 2px solid var(--bg-deep); border-top: none; border-left: none;
+    transform: rotate(45deg);
+  }
+  .wipe-cat-info { display: flex; flex-direction: column; gap: 2px; }
+  .wipe-cat-label { font-size: 11px; font-weight: 700; color: var(--text-hi); }
+  .wipe-cat-desc { font-size: 10px; color: var(--text-faint); }
 
   .feedback-btn {
     background: none; border: 1px solid var(--accent-md); color: var(--accent);

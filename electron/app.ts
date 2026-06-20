@@ -5,8 +5,8 @@ import electronReload from "electron-reload";
 import { join } from "path";
 import { autoUpdater } from 'electron-updater';
 
-const { windowManager } = require('node-window-manager');
-const { Window: ScreenshotWindow } = require('node-screenshots');
+import { windowManager } from 'node-window-manager';
+import { Window as ScreenshotWindow } from 'node-screenshots';
 
 let mainWindow: BrowserWindow;
 
@@ -139,12 +139,23 @@ ipcMain.handle("get-version", (_, key: "electron" | "node") => {
   return String(process.versions[key]);
 });
 
+const VALID_TITLE_REGEX = /^Idle Clans(?: \[[^\]]+\])?$/;
+const EXCLUDED_CLASSES = new Set(['CabinetWClass', 'ExploreWClass', 'WorkerW', 'Progman']);
+
+function isGameWindow(w: any): boolean {
+  if (!VALID_TITLE_REGEX.test(w.getTitle())) return false;
+  try {
+    const cls: string = w.getClassName?.() ?? '';
+    if (EXCLUDED_CLASSES.has(cls)) return false;
+  } catch {}
+  return true;
+}
+
 ipcMain.handle('get-game-windows', () => {
   try {
     const all = windowManager.getWindows();
-    const validTitleRegex = /^Idle Clans(?: \[[^\]]+\])?$/;
     const result = all
-      .filter((w: any) => validTitleRegex.test(w.getTitle()))
+      .filter((w: any) => isGameWindow(w))
       .map((w: any) => ({ id: w.id, title: w.getTitle() }));
     (all as any).length = 0;
     return result;

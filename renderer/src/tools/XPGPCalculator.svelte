@@ -1,7 +1,7 @@
 <script context="module" lang="ts">
   export const toolMeta = {
-    name: 'XP Calculator',
-    desc: 'Time to goal for any task',
+    name: 'XP/GP Calculator',
+    desc: 'XP rates, time to goal, and profit per hour',
     icon: '✨',
     author: 'Lucid',
   };
@@ -10,7 +10,7 @@
 <script lang="ts">
 import { onMount, tick } from 'svelte';
 import {
-  profitTasks, profitSkills, clients, toolNavigation, allItems, allEquipment,
+  profitTasks, profitSkills, clients, toolNavigation, allItems, allEquipment, priceCache,
   loadGameConfig, GATHERING_SKILLS, XP_TABLE, xpToLevel, formatGold, formatTime, navigate, formatItemName,
   fetchProfile, fetchClanProfile,
   type Task, type ClientCard, type PlayerProfile, type ClanProfile,
@@ -96,6 +96,42 @@ const LUMBERJACK_TIERS = [
   { label: 'T5 — 100%', value: 1.00 },
 ];
 
+const POWER_FORAGER_TIERS = [
+  { label: 'None', value: 0 },
+  { label: 'T1 — 10%', value: 0.10 },
+  { label: 'T2 — 20%', value: 0.20 },
+  { label: 'T3 — 30%', value: 0.30 },
+  { label: 'T4 — 40%', value: 0.40 },
+  { label: 'T5 — 50%', value: 0.50 },
+];
+
+const FARMING_TRICKERY_TIERS = [
+  { label: 'None', value: 0 },
+  { label: 'T1 — 10%', value: 0.10 },
+  { label: 'T2 — 20%', value: 0.20 },
+  { label: 'T3 — 30%', value: 0.30 },
+  { label: 'T4 — 40%', value: 0.40 },
+  { label: 'T5 — 50%', value: 0.50 },
+];
+
+const PLANK_BARGAIN_TIERS = [
+  { label: 'None',       value: 0 },
+  { label: 'T1 — 30%',  value: 0.30 },
+  { label: 'T2 — 60%',  value: 0.60 },
+  { label: 'T3 — 100%', value: 1.00 },
+];
+
+const SMELTING_MAGIC_TIERS = [
+  { label: 'None',      value: 0 },
+  { label: 'T1 — 10%', value: 0.10 },
+  { label: 'T2 — 20%', value: 0.20 },
+  { label: 'T3 — 30%', value: 0.30 },
+];
+
+const PLANK_BARGAIN_MAP = [0, 0.30, 0.60, 1.00];
+
+type Speed = 'instant' | 'slow';
+
 let loading = false;
 let selectedSkill = '';
 let selectedTask: Task | null = null;
@@ -116,47 +152,80 @@ let modConsumable: 0 | 0.02 | 0.04 = 0;
 let modHousing = 0;
 let modPlayerHousing = 0;
 let modDailyBoost: 'off' | 'avg' | 'full' = 'avg';
+let modGloves = false;
+let modPowerForagerTier = 0;
+let modFarmingTrickeryTier = 0;
+let modPlankBargainTier = 0;
+let modSmeltingMagicTier = 0;
+let modArrowCrafter = false;
+let modDelicateManufacturing = false;
+let modSellSpeed: Speed = 'instant';
+let modBuySpeed: Speed = 'instant';
+let sortMode: 'xp' | 'gold' = 'xp';
 
-const _XP_MODS_KEY = 'icc-xp-mods';
-const _xpSkillMods: Record<string, { modTool: number; modGearPieces: number; modJewelry: number[]; modCapeTier: number; modGatherers: boolean; modHousing: number; modPlayerHousing: number; modDailyBoost: 'off' | 'avg' | 'full'; xpCurrentXp: number; xpGoalLevel: number; modFishermanTier?: number; modBetterFisherman?: boolean; modLumberjackTier?: number; modBetterLumberjack?: boolean; modConsumable?: number }> = (() => {
-  try { return JSON.parse(localStorage.getItem(_XP_MODS_KEY) ?? '{}'); } catch { return {}; }
+const _CALC_MODS_KEY = 'icc-calc-mods';
+const _calcSkillMods: Record<string, any> = (() => {
+  try { return JSON.parse(localStorage.getItem(_CALC_MODS_KEY) ?? '{}'); } catch { return {}; }
 })();
-const _defaultXpMods = () => ({ modTool: 0, modGearPieces: 0, modJewelry: [0, 0, 0, 0], modCapeTier: 0, modGatherers: false, modHousing: 0, modPlayerHousing: 0, modDailyBoost: 'avg' as const, xpCurrentXp: 88474739, xpGoalLevel: 120, modFishermanTier: 0, modBetterFisherman: false, modLumberjackTier: 0, modBetterLumberjack: false, modConsumable: 0 });
+const _defaultCalcMods = () => ({
+  modTool: 0, modGearPieces: 0, modJewelry: [0, 0, 0, 0], modCapeTier: 0,
+  modGatherers: false, modHousing: 0, modPlayerHousing: 0,
+  modDailyBoost: 'avg' as const, xpCurrentXp: 0, xpGoalLevel: 120,
+  modFishermanTier: 0, modBetterFisherman: false,
+  modLumberjackTier: 0, modBetterLumberjack: false, modConsumable: 0,
+  modGloves: false, modPowerForagerTier: 0, modFarmingTrickeryTier: 0,
+  modPlankBargainTier: 0, modSmeltingMagicTier: 0,
+  modArrowCrafter: false, modDelicateManufacturing: false,
+  modSellSpeed: 'instant' as Speed, modBuySpeed: 'instant' as Speed,
+});
 
 $: if (selectedSkill) {
-  const _m = _xpSkillMods[selectedSkill] ?? _defaultXpMods();
-  modTool = _m.modTool; modGearPieces = _m.modGearPieces;
-  modCapeTier = _m.modCapeTier; modGatherers = _m.modGatherers;
+  const _m = _calcSkillMods[selectedSkill] ?? _defaultCalcMods();
+  modTool = _m.modTool ?? 0; modGearPieces = _m.modGearPieces ?? 0;
+  modCapeTier = _m.modCapeTier ?? 0; modGatherers = _m.modGatherers ?? false;
   modFishermanTier = _m.modFishermanTier ?? 0;
   modBetterFisherman = _m.modBetterFisherman ?? false;
   modLumberjackTier = _m.modLumberjackTier ?? 0;
   modBetterLumberjack = _m.modBetterLumberjack ?? false;
   modConsumable = (_m.modConsumable as 0 | 0.02 | 0.04) ?? 0;
-  const _j: number[] = (_m as any).modJewelry ?? (() => {
-    const t = (_m as any).modJewelryType ?? 0;
-    const p = Math.min((_m as any).modJewelryPieces ?? 0, 4);
-    return [p > 0 ? t : 0, p > 1 ? t : 0, p > 2 ? t : 0, p > 3 ? t : 0];
-  })();
+  modGloves = _m.modGloves ?? false;
+  modPowerForagerTier = _m.modPowerForagerTier ?? 0;
+  modFarmingTrickeryTier = _m.modFarmingTrickeryTier ?? 0;
+  modPlankBargainTier = _m.modPlankBargainTier ?? 0;
+  modSmeltingMagicTier = _m.modSmeltingMagicTier ?? 0;
+  modArrowCrafter = _m.modArrowCrafter ?? false;
+  modDelicateManufacturing = _m.modDelicateManufacturing ?? false;
+  modSellSpeed = _m.modSellSpeed === 'slow' ? 'slow' : 'instant';
+  modBuySpeed = _m.modBuySpeed === 'slow' ? 'slow' : 'instant';
+  const _j: number[] = _m.modJewelry ?? [0, 0, 0, 0];
   modJewelry0 = _j[0] ?? 0; modJewelry1 = _j[1] ?? 0;
   modJewelry2 = _j[2] ?? 0; modJewelry3 = _j[3] ?? 0;
-  modHousing = _m.modHousing;
+  modHousing = _m.modHousing ?? 0;
   modPlayerHousing = _m.modPlayerHousing ?? 0;
   const _raw = _m.modDailyBoost as any;
   modDailyBoost = _raw === true ? 'full' : _raw === false ? 'off' : (_raw ?? 'avg');
   xpCurrentXp = _m.xpCurrentXp ?? 0;
-  xpGoalLevel = _m.xpGoalLevel ?? 99;
+  xpGoalLevel = _m.xpGoalLevel ?? 120;
   xpFieldAuto = false;
   goalFieldAuto = false;
 }
 
 $: if (selectedSkill) {
-  _xpSkillMods[selectedSkill] = { modTool, modGearPieces, modJewelry: [modJewelry0, modJewelry1, modJewelry2, modJewelry3], modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpCurrentXp, xpGoalLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable };
-  try { localStorage.setItem(_XP_MODS_KEY, JSON.stringify(_xpSkillMods)); } catch {}
+  _calcSkillMods[selectedSkill] = {
+    modTool, modGearPieces, modJewelry: [modJewelry0, modJewelry1, modJewelry2, modJewelry3],
+    modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost,
+    xpCurrentXp, xpGoalLevel, modFishermanTier, modBetterFisherman,
+    modLumberjackTier, modBetterLumberjack, modConsumable,
+    modGloves, modPowerForagerTier, modFarmingTrickeryTier, modPlankBargainTier,
+    modSmeltingMagicTier, modArrowCrafter, modDelicateManufacturing,
+    modSellSpeed, modBuySpeed,
+  };
+  try { localStorage.setItem(_CALC_MODS_KEY, JSON.stringify(_calcSkillMods)); } catch {}
 }
 
 $: if (selectedSkill && lastImportedProfile) _applyProfile(lastImportedProfile, selectedSkill.toLowerCase(), lastImportedClanProfile);
 
-let xpCurrentXp = 88474739;
+let xpCurrentXp = 0;
 let xpGoalLevel = 120;
 let xpFieldAuto = false;
 let goalFieldAuto = false;
@@ -182,7 +251,7 @@ let _refreshTimer: ReturnType<typeof setTimeout>;
 
 $: {
   const _nav = $toolNavigation;
-  if (_nav?.tool === 'XP Calculator' && _nav.id !== _xpNavId) {
+  if (_nav?.tool === 'XP/GP Calculator' && _nav.id !== _xpNavId) {
     _xpNavId = _nav.id;
     applyNav(_nav.param);
   }
@@ -228,29 +297,61 @@ function calcXp(task: Task) {
   const consumableMult = 1 + modConsumable;
   const xpPerAction = task.exp * (1 + modHousing + modPlayerHousing) * (1 + dailyBonus) * fishermanXpMult * lumberjackXpMult * consumableMult;
   const xpPerHr = xpPerAction * actionsPerHr;
-  const goalXp = xpGoalLevel >= 1 && xpGoalLevel <= 120 ? XP_TABLE[xpGoalLevel - 1] : null;
+  const goalXp = xpGoalLevel >= 1 && xpGoalLevel <= 120 ? XP_TABLE[Math.max(1, xpGoalLevel) - 1] : null;
   const xpNeeded = goalXp !== null ? Math.max(goalXp - xpCurrentXp, 0) : null;
   const timeToGoal = xpNeeded !== null ? xpNeeded / xpPerHr * 3600 : null;
   const actionsToGoal = xpNeeded !== null ? Math.ceil(xpNeeded / xpPerAction) : null;
   return { xpPerHr, xpPerAction, timeToGoal, actionsToGoal };
 }
 
+function calcProfit(task: Task, cache: typeof $priceCache): { profitPerHr: number; outputValue: number; inputCost: number; hasData: boolean } {
+  const actionsPerHr = 3600 / calcTaskTime(task);
+  const sellPrice = (id: number) => modSellSpeed === 'instant' ? (cache[id]?.highestBuy ?? 0) : (cache[id]?.lowestSell ?? 0);
+  const buyPrice  = (id: number) => modBuySpeed  === 'instant' ? (cache[id]?.lowestSell  ?? 0) : (cache[id]?.highestBuy ?? 0);
+  const glovesMult           = (modGloves && task.skill !== 'Agility') ? 1.05 : 1;
+  const fishermanMult        = (task.skill === 'Fishing'    && modFishermanTier > 0)    ? 1 + modFishermanTier    : 1;
+  const lumberjackMult       = (task.skill === 'Woodcutting' && modLumberjackTier > 0)  ? 1 + modLumberjackTier   : 1;
+  const powerForagerMult     = (task.skill === 'Foraging'   && modPowerForagerTier > 0) ? 1 + modPowerForagerTier : 1;
+  const farmingSaveMult      = (task.skill === 'Farming'    && modFarmingTrickeryTier > 0) ? 1 - modFarmingTrickeryTier : 1;
+  const plankSaveMult        = (task.skill === 'Carpentry'  && modPlankBargainTier > 0)    ? 1 - modPlankBargainTier   : 1;
+  const smeltingSaveMult     = (task.skill === 'Smithing'   && modSmeltingMagicTier > 0)   ? 1 - modSmeltingMagicTier  : 1;
+  const arrowMult            = (task.skill === 'Crafting'   && modArrowCrafter)     ? 1.10 : 1;
+  const delicateSaveMult     = (task.skill === 'Crafting'   && modDelicateManufacturing) ? 0.80 : 1;
+  const outputValue = task.itemReward !== -1
+    ? sellPrice(task.itemReward) * task.itemAmount * actionsPerHr * glovesMult * fishermanMult * lumberjackMult * powerForagerMult * arrowMult
+    : 0;
+  const inputCost = task.costs.reduce((s, c) => s + buyPrice(c.Item) * c.Amount * actionsPerHr, 0)
+    * farmingSaveMult * plankSaveMult * smeltingSaveMult * delicateSaveMult;
+  const hasData = (task.itemReward !== -1 && sellPrice(task.itemReward) > 0)
+               || task.costs.some(c => buyPrice(c.Item) > 0);
+  return { profitPerHr: outputValue - inputCost, outputValue, inputCost, hasData };
+}
+
 $: xpTasks = (() => {
-  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp, xpCurrentLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable, filterHideLocked, filterHideUnrealistic, filterHideInputRequired];
+  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp, xpCurrentLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable, modGloves, modPowerForagerTier, modFarmingTrickeryTier, modPlankBargainTier, modSmeltingMagicTier, modArrowCrafter, modDelicateManufacturing, modSellSpeed, modBuySpeed, filterHideLocked, filterHideUnrealistic, filterHideInputRequired, filterHideUnprofitable, filterHideNoMarketData, sortMode, $priceCache];
+  const cache = $priceCache;
   return $profitTasks
     .filter(t => t.skill === selectedSkill)
     .filter(t => {
       if (filterHideLocked && t.level > xpCurrentLevel) return false;
       if (filterHideInputRequired && t.costs.length > 0) return false;
+      const needsProfit = filterHideNoMarketData || filterHideUnprofitable || (filterHideUnrealistic && sortMode === 'gold');
+      if (needsProfit) {
+        const p = calcProfit(t, cache);
+        if (filterHideNoMarketData && !p.hasData) return false;
+        if (filterHideUnprofitable && p.hasData && p.profitPerHr < 0) return false;
+        if (filterHideUnrealistic && sortMode === 'gold' && p.profitPerHr > 1_000_000) return false;
+      }
+      if (filterHideUnrealistic && sortMode !== 'gold' && calcXp(t).xpPerHr > 1_000_000) return false;
       return true;
     })
     .sort((a, b) => {
       const aLocked = a.level > xpCurrentLevel ? 1 : 0;
       const bLocked = b.level > xpCurrentLevel ? 1 : 0;
       if (aLocked !== bLocked) return aLocked - bLocked;
+      if (sortMode === 'gold') return calcProfit(b, cache).profitPerHr - calcProfit(a, cache).profitPerHr;
       return calcXp(b).xpPerHr - calcXp(a).xpPerHr;
-    })
-    .filter(t => !filterHideUnrealistic || calcXp(t).xpPerHr <= 1_000_000);
+    });
 })();
 
 $: xpCurrentLevel = xpToLevel(xpCurrentXp);
@@ -281,8 +382,10 @@ let showFilterMenu = false;
 let filterHideLocked = false;
 let filterHideUnrealistic = false;
 let filterHideInputRequired = false;
+let filterHideUnprofitable = false;
+let filterHideNoMarketData = false;
 
-$: activeFilterCount = [filterHideLocked, filterHideUnrealistic, filterHideInputRequired].filter(Boolean).length;
+$: activeFilterCount = [filterHideLocked, filterHideUnrealistic, filterHideInputRequired, filterHideUnprofitable, filterHideNoMarketData].filter(Boolean).length;
 
 let _tipText = '';
 let _tipX = 0;
@@ -323,9 +426,6 @@ const _SKILL_TOOL: Record<string, string> = {
   plundering: 'lockpicks', brewing: 'philosopher_stone', mining: 'pickaxe',
   farming: 'rake', carpentry: 'saw', foraging: 'secateurs', invocation: 'brush',
 };
-const _JEWELRY_SLOTS: [string, string, number][] = [
-  ['jewellery','Ring',0],['amulet','Amulet',1],['bracelet','Bracelet',2],['earrings','Earrings',3],
-];
 
 function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?: ClanProfile | null) {
   if (importXp) {
@@ -344,9 +444,15 @@ function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?:
       const clanUpgIds: number[] = clanProfile?.serializedUpgrades ? JSON.parse(clanProfile.serializedUpgrades) : [];
       modGatherers = clanUpgIds.includes(23);
     } catch { modGatherers = false; }
+    modPowerForagerTier = Math.min(upgs['powerForager'] ?? 0, 5) * 0.10;
+    modFarmingTrickeryTier = Math.min(upgs['farmingTrickery'] ?? 0, 5) * 0.10;
+    modPlankBargainTier = PLANK_BARGAIN_MAP[Math.min(upgs['plankBargain'] ?? 0, 3)] ?? 0;
+    modSmeltingMagicTier = Math.min(upgs['smeltingMagic'] ?? 0, 3) * 0.10;
+    modArrowCrafter = (upgs['arrowCrafter'] ?? 0) > 0;
+    modDelicateManufacturing = (upgs['delicateManufacturing'] ?? 0) > 0;
   }
   if (importEquipment) {
-    modTool = 0; modGearPieces = 0; modCapeTier = 0;
+    modTool = 0; modGearPieces = 0; modCapeTier = 0; modGloves = false; modConsumable = 0;
     modJewelry0 = 0; modJewelry1 = 0; modJewelry2 = 0; modJewelry3 = 0;
     const rawBoost = profile.enchantmentBoosts?.[skillLower] ?? 0;
     const totalJewelryPct = rawBoost > 1 ? rawBoost / 100 : rawBoost;
@@ -403,8 +509,12 @@ function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?:
       if (capeId) {
         const n = cleanName(capeId);
         if (n.includes(skillLower) && n.includes('_cape_tier_')) {
-          modCapeTier = n.includes('_tier_4') ? 0.20 : n.includes('_tier_3') ? 0.15 : n.includes('_tier_2') ? 0.10 : 0.05;
+          modCapeTier = n.includes('_tier_4') ? 0.20 : n.includes('_tier_3') ? 0.15 : n.includes('_tier_2') ? 0.10 : n.includes('_tier_1') ? 0.05 : 0;
         }
+      }
+      const glovesId = equip['gloves'];
+      if (glovesId && glovesId > 0) {
+        modGloves = cleanName(glovesId) === `${skillLower}_gloves`;
       }
       let gear = 0;
       for (const slot of ['head','body','legs']) {
@@ -427,8 +537,15 @@ function doImport(profile: PlayerProfile, clanProfile: ClanProfile | null = null
     if (modPlayerHousing > 0) filled.add('playerHousing');
     if (modHousing > 0) filled.add('clanHousing');
     if (modGatherers) filled.add('gatherers');
+    if (modPowerForagerTier > 0) filled.add('powerForager');
+    if (modFarmingTrickeryTier > 0) filled.add('farmingTrickery');
+    if (modPlankBargainTier > 0) filled.add('plankBargain');
+    if (modSmeltingMagicTier > 0) filled.add('smeltingMagic');
+    if (modArrowCrafter) filled.add('arrowCrafter');
+    if (modDelicateManufacturing) filled.add('delicateManufacturing');
   }
   if (importEquipment) {
+    if (modGloves) filled.add('gloves');
     if (modTool > 0) filled.add('tool');
     if (modGearPieces > 0) filled.add('gear');
     if (modJewelry0 > 0) filled.add('jewelry0');
@@ -475,7 +592,7 @@ async function doImportFromClient(client: ClientCard) {
   <div class="dev-row"><span class="dev-key">XP table</span><span class="dev-val">{XP_TABLE.length} levels</span></div>
   <div class="dev-row"><span class="dev-key">Selected skill</span><span class="dev-val">{selectedSkill || '—'}</span></div>
   <div class="dev-row"><span class="dev-key">Current XP</span><span class="dev-val">{xpCurrentXp.toLocaleString()}</span></div>
-  <div class="dev-row"><span class="dev-key">Storage key</span><span class="dev-val">icc-xp-mods</span></div>
+  <div class="dev-row"><span class="dev-key">Storage key</span><span class="dev-val">icc-calc-mods</span></div>
   <div class="dev-sep"></div>
   <div class="dev-row"><span class="dev-key">Config API</span><span class="dev-val">/Configuration/game-data</span></div>
 </DevPanel>
@@ -510,7 +627,7 @@ async function doImportFromClient(client: ClientCard) {
       <input class="select" class:autofill={autoFilledFields.has('goal')} class:field-auto={goalFieldAuto} type="number" min="1" max="120" bind:value={xpGoalLevel} placeholder="120" on:input={() => goalFieldAuto = false} />
     </div>
     {#if xpCurrentXp > 0}
-      {@const xpNeeded = XP_TABLE[Math.min(xpGoalLevel, 120) - 1] - xpCurrentXp}
+      {@const xpNeeded = XP_TABLE[Math.max(1, Math.min(xpGoalLevel, 120)) - 1] - xpCurrentXp}
       <span class="goal-xp-label">Lv.{xpCurrentLevel} → Lv.{Math.min(xpGoalLevel, 120)} · {xpNeeded <= 0 ? 'Goal reached' : `${formatGold(xpNeeded)} XP needed`}</span>
     {/if}
   </div>
@@ -596,6 +713,61 @@ async function doImportFromClient(client: ClientCard) {
         {/if}
       {/if}
 
+      {#if selectedSkill !== 'Agility'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('gloves')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Increases resource output by 5% for most skilling tasks.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Skilling gloves</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGloves} on:click={() => modGloves = false}>No</button>
+            <button class="boost-btn" class:active={modGloves} on:click={() => modGloves = true}>Yes</button>
+          </div>
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Foraging'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier increases the chance to forage double loot.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Power Forager</span>
+          <CustomSelect autofill={importFilledFields.has('powerForager')} bind:value={modPowerForagerTier} options={POWER_FORAGER_TIERS} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Farming'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Each tier gives a chance to save your seeds, reducing effective input cost.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Farming Trickery</span>
+          <CustomSelect autofill={importFilledFields.has('farmingTrickery')} bind:value={modFarmingTrickeryTier} options={FARMING_TRICKERY_TIERS} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Carpentry'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Reduces the gold cost of all Carpentry tasks. T3 makes all tasks free.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Plank Bargain</span>
+          <CustomSelect autofill={importFilledFields.has('plankBargain')} bind:value={modPlankBargainTier} options={PLANK_BARGAIN_TIERS} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Smithing'}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Market upgrade. Gives a chance to save ore when smelting bars.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Smelting Magic</span>
+          <CustomSelect autofill={importFilledFields.has('smeltingMagic')} bind:value={modSmeltingMagicTier} options={SMELTING_MAGIC_TIERS} />
+        </div>
+      {/if}
+
+      {#if selectedSkill === 'Crafting'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('arrowCrafter')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Item unlock. Increases crafted arrow quantities by 10%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Arrow Crafter</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modArrowCrafter} on:click={() => modArrowCrafter = false}>No</button>
+            <button class="boost-btn" class:active={modArrowCrafter} on:click={() => modArrowCrafter = true}>Yes</button>
+          </div>
+        </div>
+        <div class="mod-row" class:row-auto={importFilledFields.has('delicateManufacturing')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Item unlock. Use 20% less flax when crafting non-astronomical fabrics.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Delicate Mfg.</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modDelicateManufacturing} on:click={() => modDelicateManufacturing = false}>No</button>
+            <button class="boost-btn" class:active={modDelicateManufacturing} on:click={() => modDelicateManufacturing = true}>Yes</button>
+          </div>
+        </div>
+      {/if}
+
       <div class="mod-gap"></div>
 
       <div class="mod-row">
@@ -618,31 +790,57 @@ async function doImportFromClient(client: ClientCard) {
         </div>
       {/if}
 
+      <div class="mod-row">
+        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'How you sell outputs. Instant sells to the highest buyer. Slow lists at the lowest current seller price.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Sell speed</span>
+        <div class="boost-btns">
+          <button class="boost-btn" class:active={modSellSpeed === 'instant'} on:click={() => modSellSpeed = 'instant'}>Instant</button>
+          <button class="boost-btn" class:active={modSellSpeed === 'slow'} on:click={() => modSellSpeed = 'slow'}>Slow</button>
+        </div>
+      </div>
+
+      <div class="mod-row">
+        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'How you buy inputs. Instant buys from the lowest seller. Slow places a buy order at the highest buyer price.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Buy speed</span>
+        <div class="boost-btns">
+          <button class="boost-btn" class:active={modBuySpeed === 'instant'} on:click={() => modBuySpeed = 'instant'}>Instant</button>
+          <button class="boost-btn" class:active={modBuySpeed === 'slow'} on:click={() => modBuySpeed = 'slow'}>Slow</button>
+        </div>
+      </div>
+
     </div>
   </div>
 
   <div class="field">
     <label class="label">Tasks</label>
     <div class="task-list">
-      <div class="filter-wrap">
-        <button class="filter-btn" class:active={activeFilterCount > 0} on:click={() => showFilterMenu = !showFilterMenu} aria-label="Toggle task filters">
-          <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-            <path d="M0.5 1.5h9l-3.5 4v3l-2-1v-2z"/>
-          </svg>
-          Filters
-          {#if activeFilterCount > 0}<span class="filter-badge">{activeFilterCount}</span>{/if}
-        </button>
-        {#if showFilterMenu}
-          <div class="filter-backdrop" on:click={() => showFilterMenu = false} role="none"></div>
-          <div class="filter-menu">
-            <label class="filter-item"><input type="checkbox" bind:checked={filterHideLocked} /><span>Hide locked tasks (level req)</span></label>
-            <label class="filter-item"><input type="checkbox" bind:checked={filterHideUnrealistic} /><span>Hide unrealistic tasks (&gt;1M XP/hr)</span></label>
-            <label class="filter-item"><input type="checkbox" bind:checked={filterHideInputRequired} /><span>Hide tasks requiring inputs</span></label>
-          </div>
-        {/if}
+      <div class="task-controls">
+        <div class="sort-btns">
+          <button class="sort-btn" class:active={sortMode === 'xp'} on:click={() => sortMode = 'xp'}>XP</button>
+          <button class="sort-btn" class:active={sortMode === 'gold'} on:click={() => sortMode = 'gold'}>GP</button>
+        </div>
+        <div class="filter-wrap">
+          <button class="filter-btn" class:active={activeFilterCount > 0} on:click={() => showFilterMenu = !showFilterMenu} aria-label="Toggle task filters">
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+              <path d="M0.5 1.5h9l-3.5 4v3l-2-1v-2z"/>
+            </svg>
+            Filters
+            {#if activeFilterCount > 0}<span class="filter-badge">{activeFilterCount}</span>{/if}
+          </button>
+          {#if showFilterMenu}
+            <div class="filter-backdrop" on:click={() => showFilterMenu = false} role="none"></div>
+            <div class="filter-menu">
+              <label class="filter-item"><input type="checkbox" bind:checked={filterHideLocked} /><span>Hide locked tasks (level req)</span></label>
+              <label class="filter-item"><input type="checkbox" bind:checked={filterHideUnrealistic} /><span>Hide unrealistic tasks (&gt;1M {sortMode === 'gold' ? 'gp' : 'xp'}/hr)</span></label>
+              <label class="filter-item"><input type="checkbox" bind:checked={filterHideInputRequired} /><span>Hide tasks requiring inputs</span></label>
+              <label class="filter-item"><input type="checkbox" bind:checked={filterHideNoMarketData} /><span>Hide tasks with no market data</span></label>
+              <label class="filter-item"><input type="checkbox" bind:checked={filterHideUnprofitable} /><span>Hide unprofitable tasks</span></label>
+            </div>
+          {/if}
+        </div>
       </div>
+      <span class="task-hint">Click a task to see the detailed view</span>
       {#each xpTasks as task}
         {@const x = calcXp(task)}
+        {@const g = calcProfit(task, $priceCache)}
         <button
           class="task-row"
           class:active={selectedTask?.name === task.name}
@@ -668,9 +866,10 @@ async function doImportFromClient(client: ClientCard) {
             <span class="task-level" class:req-fail={task.level > xpCurrentLevel}>Lv. {task.level}</span>
           </div>
           <div class="task-right">
-            <span class="task-phr pos">{formatGold(x.xpPerHr)} xp/hr</span>
-            {#if x.timeToGoal !== null}
-              <span class="task-ttg">{formatTime(x.timeToGoal)}</span>
+            <span class="task-phr pos">+{formatGold(x.xpPerHr)} xp/hr</span>
+            {#if g.hasData}
+              {@const gr = Math.round(g.profitPerHr)}
+              <span class="task-gph" class:pos={gr > 0} class:neg={gr < 0} class:neutral={gr === 0}>{gr === 0 ? '0' : (gr > 0 ? '+' : '') + formatGold(g.profitPerHr)} gp/hr</span>
             {/if}
           </div>
         </button>
@@ -680,8 +879,27 @@ async function doImportFromClient(client: ClientCard) {
             <div class="detail-row"><span>XP per action</span><span>{x.xpPerAction.toFixed(1)}</span></div>
             <div class="detail-row"><span>Actions/hr</span><span>{Math.round(3600 / calcTaskTime(task)).toLocaleString()}</span></div>
             <div class="detail-row"><span>Task time</span><span>{calcTaskTime(task).toFixed(2)}s</span></div>
+            {#if x.timeToGoal !== null}
+              <div class="detail-row"><span>Time to goal</span><span>{formatTime(x.timeToGoal)}</span></div>
+            {/if}
             {#if x.actionsToGoal !== null}
               <div class="detail-row"><span>Actions to goal</span><span>{x.actionsToGoal?.toLocaleString()}</span></div>
+            {/if}
+            {#if g.hasData}
+              <div class="detail-row detail-divider"></div>
+              {#if g.outputValue > 0}
+                <div class="detail-row"><span>Output/hr</span><span class="pos">+{formatGold(g.outputValue)} gp</span></div>
+              {/if}
+              {#if g.inputCost > 0}
+                <div class="detail-row"><span>Input cost/hr</span><span class="neg">-{formatGold(g.inputCost)} gp</span></div>
+              {/if}
+              {@const gr2 = Math.round(g.profitPerHr)}
+              <div class="detail-row"><span>{gr2 >= 0 ? 'Profit/hr' : 'Cost/hr'}</span><span class:pos={gr2 > 0} class:neg={gr2 < 0} class:neutral={gr2 === 0}>{gr2 === 0 ? '0' : (gr2 > 0 ? '+' : '') + formatGold(g.profitPerHr)} gp</span></div>
+              {#if x.xpPerHr > 0}
+                {@const gpPerXp = g.profitPerHr / x.xpPerHr}
+                {@const gx = Math.round(gpPerXp * 100) / 100}
+                <div class="detail-row"><span>GP / XP</span><span class:pos={gx > 0} class:neg={gx < 0} class:neutral={gx === 0}>{gx === 0 ? '0' : (gx > 0 ? '+' : '') + gx.toFixed(2)} gp</span></div>
+              {/if}
             {/if}
             {#if task.itemReward !== -1}
               <button class="market-btn" on:click={() => navigate('Market', String(task.itemReward))}>
@@ -791,8 +1009,19 @@ async function doImportFromClient(client: ClientCard) {
   .boost-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
 
   .task-list { display: flex; flex-direction: column; gap: 3px; }
+  .task-hint { font-size: 9px; color: var(--text-faint); text-align: center; padding: 1px 0 2px; }
 
-  .filter-wrap { position: relative; }
+  .task-controls { display: flex; align-items: center; gap: 6px; }
+  .sort-btns { display: flex; gap: 3px; }
+  .sort-btn {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 5px;
+    color: var(--text-muted); font-size: 10px; font-weight: 700; font-family: 'Nunito', sans-serif;
+    padding: 4px 10px; cursor: pointer; transition: all 0.15s;
+  }
+  .sort-btn:hover { border-color: var(--accent-lo); color: var(--text-sub); }
+  .sort-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-raised); }
+
+  .filter-wrap { position: relative; flex: 1; }
 
   .filter-btn {
     width: 100%; display: flex; align-items: center; justify-content: center; gap: 5px;
@@ -840,7 +1069,7 @@ async function doImportFromClient(client: ClientCard) {
     border: 2px solid var(--bg-deep); border-top: none; border-left: none;
     transform: rotate(45deg);
   }
-  .filter-item span { font-size: 11px; color: var(--text-muted); }
+  .filter-item span { font-size: 11px; color: var(--text-sub); }
   .task-row {
     display: flex; justify-content: space-between; align-items: center; gap: 9px;
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
@@ -859,7 +1088,8 @@ async function doImportFromClient(client: ClientCard) {
   .task-level { font-size: 9px; color: var(--text-faint); }
   .task-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
   .task-phr { font-size: 11px; font-weight: 700; }
-  .task-ttg { font-size: 9px; color: var(--text-faint); }
+  .task-gph { font-size: 11px; font-weight: 700; }
+  .detail-divider { border-top: 1px solid var(--divider); margin: 2px 0; }
 
   .detail {
     background: var(--bg-deep); border: 1px solid var(--border); border-radius: 6px;
@@ -887,6 +1117,8 @@ async function doImportFromClient(client: ClientCard) {
   }
 
   .pos { color: var(--pos); }
+  .neg { color: var(--neg); }
+  .neutral { color: var(--neutral); }
   .req-fail { color: #863131; }
   .field-auto { border-color: var(--accent-md) !important; background: color-mix(in srgb, var(--accent) 7%, var(--bg-card)) !important; }
 

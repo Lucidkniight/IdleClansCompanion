@@ -9,6 +9,9 @@ import { windowManager } from 'node-window-manager';
 import { Window as ScreenshotWindow } from 'node-screenshots';
 
 let mainWindow: BrowserWindow;
+let zoomFactor = 1;
+
+function appWidth() { return Math.round(300 * zoomFactor); }
 
 app.once("ready", main);
 
@@ -30,7 +33,7 @@ async function main() {
   mainWindow.on('move', () => snapActiveWindow(false));
   mainWindow.on('resize', () => {
     const [w, h] = mainWindow.getSize();
-    if (w !== 300) mainWindow.setSize(300, h);
+    if (w !== appWidth()) mainWindow.setSize(appWidth(), h);
     snapActiveWindow(false);
   });
 
@@ -140,13 +143,12 @@ ipcMain.handle("get-version", (_, key: "electron" | "node") => {
 });
 
 const VALID_TITLE_REGEX = /^Idle Clans(?: \[[^\]]+\])?$/;
-const EXCLUDED_CLASSES = new Set(['CabinetWClass', 'ExploreWClass', 'WorkerW', 'Progman']);
 
 function isGameWindow(w: any): boolean {
   if (!VALID_TITLE_REGEX.test(w.getTitle())) return false;
   try {
-    const cls: string = w.getClassName?.() ?? '';
-    if (EXCLUDED_CLASSES.has(cls)) return false;
+    const exePath: string = w.path ?? '';
+    if (!exePath.toLowerCase().endsWith('idle clans.exe')) return false;
   } catch {}
   return true;
 }
@@ -174,11 +176,12 @@ function snapActiveWindow(bringToTop = false) {
     const [x, y] = mainWindow.getPosition();
     const [, h] = mainWindow.getSize();
     const display = screen.getDisplayNearestPoint({ x, y });
-    const availableWidth = display.workArea.width - 300;
+    const aw = appWidth();
+    const availableWidth = display.workArea.width - aw;
     const heightBasedWidth = Math.round(h * (16 / 9));
     const gameWidth = Math.min(availableWidth, heightBasedWidth);
     activeGameWin.restore();
-    activeGameWin.setBounds({ x: x + 300, y, width: gameWidth, height: h });
+    activeGameWin.setBounds({ x: x + aw, y, width: gameWidth, height: h });
     if (bringToTop) activeGameWin.bringToTop();
   } catch (e) {
     // Window likely closed — clear stale reference
@@ -190,8 +193,7 @@ function snapActiveWindow(bringToTop = false) {
 app.on('before-quit', () => {
   try {
     const all = windowManager.getWindows();
-    const validTitleRegex = /^Idle Clans(?: \[[^\]]+\])?$/;
-    all.filter((w: any) => validTitleRegex.test(w.getTitle()))
+    all.filter((w: any) => isGameWindow(w))
       .forEach((w: any) => {
         w.restore();
         w.setBounds({ x: 100, y: 100, width: 1280, height: 720 });
@@ -253,4 +255,11 @@ ipcMain.handle('launch-game-clients', (_event, exePath: string, count: number) =
 
 ipcMain.handle('get-window-size', () => {
   return mainWindow.getSize();
+});
+
+ipcMain.handle('set-zoom-factor', (_event, factor: number) => {
+  zoomFactor = Math.max(0.5, Math.min(3, factor));
+  mainWindow.webContents.setZoomFactor(zoomFactor);
+  const [, h] = mainWindow.getSize();
+  mainWindow.setSize(appWidth(), h);
 });

@@ -13,5 +13,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   browseExe: () => ipcRenderer.invoke('browse-exe'),
   launchGameClients: (exePath: string, count: number) => ipcRenderer.invoke('launch-game-clients', exePath, count),
+  setZoomFactor: (factor: number) => ipcRenderer.invoke('set-zoom-factor', factor),
 });
 

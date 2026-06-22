@@ -14,7 +14,7 @@
     tick().then(() => node.focus());
   }
   import {
-    clients, allItems, allEquipment, allMonsters, enchantedToBase, loadGameConfig, fetchProfile, fetchClanProfile, formatItemName, formatGold,
+    clients, allItems, allEquipment, allMonsters, enchantedToBase, priceCache, loadGameConfig, fetchProfile, fetchClanProfile, formatItemName, formatGold,
     xpToLevel,
     type ClientCard, type Monster, type PlayerProfile,
   } from '../lib/store';
@@ -639,15 +639,23 @@ function calcAugmented(level: number, bonus: number): number {
     }
 
     let goldPerHour = 0;
+    let marketGoldPerHour = 0;
     const keyDrops = new Map<number, number>();
     if (m && kph > 0) {
+      const cache = $priceCache;
       for (const drop of m.loot) {
-        if (drop.itemId === GOLD_ITEM_ID) goldPerHour += kph * drop.dropRate * drop.avgAmount;
+        const qty = kph * drop.dropRate * drop.avgAmount;
+        if (drop.itemId === GOLD_ITEM_ID) {
+          goldPerHour += qty;
+          marketGoldPerHour += qty;
+        } else {
+          marketGoldPerHour += qty * (cache[drop.itemId]?.highestBuy ?? 0);
+        }
         if (keyItemIds.has(drop.itemId)) keyDrops.set(drop.itemId, (keyDrops.get(drop.itemId) ?? 0) + kph * drop.dropRate);
       }
     }
 
-    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn, goldPerHour, keyDrops };
+    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn, goldPerHour, marketGoldPerHour, keyDrops };
   });
 
   onMount(async () => {
@@ -994,12 +1002,18 @@ function calcAugmented(level: number, bonus: number): number {
               <span class="result-value">{d.respawn > 0 ? d.respawn.toFixed(1) + 's' : '—'}</span>
             </div>
           </div>
-          {#if d.goldPerHour > 0 || d.keyDrops.size > 0}
+          {#if d.goldPerHour > 0 || d.marketGoldPerHour > 0 || d.keyDrops.size > 0}
           <div class="result-profit">
             <span class="result-section-label">Profit</span>
+            {#if d.marketGoldPerHour > 0}
+            <div class="result-detail-cell">
+              <span class="result-label">Market/h</span>
+              <span class="result-value">{formatGold(Math.round(d.marketGoldPerHour))}</span>
+            </div>
+            {/if}
             {#if d.goldPerHour > 0}
             <div class="result-detail-cell">
-              <span class="result-label">Gold/h</span>
+              <span class="result-label">Raw gold/h</span>
               <span class="result-value">{formatGold(Math.round(d.goldPerHour))}</span>
             </div>
             {/if}
@@ -1163,11 +1177,10 @@ function calcAugmented(level: number, bonus: number): number {
           on:click={() => { selectedDropItemId = isSelected ? null : entry.itemId; closeDropTable(); }}
         >
           <img class="picker-item-icon" src="./itemicons/{rawName}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
-          <span class="loot-picker-name">{name}</span>
-          <span class="loot-rate">{entry.dropRate >= 0.01 ? (entry.dropRate * 100).toFixed(1) + '%' : '1 in ' + Math.round(1 / entry.dropRate).toLocaleString()}</span>
-          {#if entry.avgAmount > 1}
-            <span class="loot-amt">×{Number.isInteger(entry.avgAmount) ? entry.avgAmount : entry.avgAmount.toFixed(1)}</span>
-          {/if}
+          <span class="loot-picker-name">
+            {name}{#if entry.avgAmount > 1}<span class="loot-amt"> ×{Number.isInteger(entry.avgAmount) ? entry.avgAmount : entry.avgAmount.toFixed(1)}</span>{/if}
+          </span>
+          <span class="loot-rate">1 in {Math.round(1 / entry.dropRate).toLocaleString()}</span>
         </button>
       {/each}
       {#if filteredLoot.length === 0}

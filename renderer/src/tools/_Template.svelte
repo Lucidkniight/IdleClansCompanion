@@ -163,6 +163,7 @@
   │ SEMANTIC                                                                │
   │   var(--pos)         #4ade80   Positive / profit                        │
   │   var(--neg)         #e05555   Negative / loss                          │
+  │   var(--neutral)     #e8884a   Neutral / break-even (orange-yellow)     │
   ├─────────────────────────────────────────────────────────────────────────┤
   │ TYPOGRAPHY                                                              │
   │   font-family: 'Nunito', sans-serif   — all UI text                     │

@@ -122,7 +122,7 @@ async function submitFeedback() {
 }
 
 const WIPE_CATS = [
-  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, launcher',                   keys: ['s-theme','s-aot','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out'] },
+  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out'] },
   { id: 'alerts',    label: 'Price Alerts',     desc: 'Alert rules and triggered notification history',                 keys: ['icc-price-alerts','icc-triggered-alerts'] },
   { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], prefix: 'icc-tracker-snap-' },
   { id: 'notepad',   label: 'Notepad',          desc: 'All saved notes',                                               keys: ['notepad'] },
@@ -288,6 +288,10 @@ function applyTheme(theme: Theme) {
 }
 
 const FPS_OPTIONS = [0, 0.1, 0.3, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const ZOOM_OPTIONS = Array.from({ length: 25 }, (_, i) => Math.round((0.80 + i * 0.05) * 100) / 100);
+const _storedZoom = parseFloat(localStorage.getItem('s-zoom') ?? '1');
+let settingZoomIdx = (() => { const i = ZOOM_OPTIONS.findIndex(v => Math.abs(v - _storedZoom) < 0.01); return i !== -1 ? i : ZOOM_OPTIONS.indexOf(1); })();
+let settingZoom = ZOOM_OPTIONS[settingZoomIdx];
 let settingAlwaysOnTop    = localStorage.getItem('s-aot') === 'true';
 let settingAnalyticsOptOut = localStorage.getItem('s-analytics-opt-out') === 'true';
 const _storedFps = parseFloat(localStorage.getItem('s-prev-fps') ?? '1');
@@ -298,6 +302,10 @@ let settingApiDebug    = localStorage.getItem('s-api-debug') === 'true';
 
 applyTheme(settingTheme);
 
+$: {
+  settingZoom = ZOOM_OPTIONS[settingZoomIdx];
+  localStorage.setItem('s-zoom', String(settingZoom));
+}
 $: {
   localStorage.setItem('s-aot', String(settingAlwaysOnTop));
   (window as any).electronAPI.setAlwaysOnTop(settingAlwaysOnTop);
@@ -389,6 +397,7 @@ function moveClient(client: ClientCard, dir: -1 | 1) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMount(async () => {
+  (window as any).electronAPI.setZoomFactor(settingZoom);
   initAnalytics(settingAnalyticsOptOut);
   await loadGameConfig();
   await scan();
@@ -536,6 +545,20 @@ onDestroy(() => {
 
       <div class="settings-group">
         <div class="settings-group-label">Appearance</div>
+        <div class="settings-row settings-row-col">
+          <div class="settings-row-top">
+            <span class="settings-label">UI Scale</span>
+            <span class="settings-value">{Math.round(settingZoom * 100)}%</span>
+          </div>
+          <input
+            class="settings-slider"
+            type="range"
+            min="0" max="24" step="1"
+            bind:value={settingZoomIdx}
+            style="--fill: {(settingZoomIdx / 24) * 100}%"
+            on:change={() => (window as any).electronAPI.setZoomFactor(settingZoom)}
+          />
+        </div>
         <div class="settings-row settings-row-label-only">
           <span class="settings-label">Theme</span>
         </div>
@@ -1003,6 +1026,7 @@ onDestroy(() => {
     --accent-hi:  rgba(232,184,75,0.53);
     --pos:        #4ade80;
     --neg:        #e05555;
+    --neutral:    #e8884a;
   }
 
   :global(body.light-theme) {
@@ -1025,6 +1049,7 @@ onDestroy(() => {
     --accent-hi:  rgba(45,98,120,0.50);
     --pos:        #2a7a50;
     --neg:        #a03830;
+    --neutral:    #c06820;
   }
 
   :global(body.vaporwave-theme) {
@@ -1047,6 +1072,7 @@ onDestroy(() => {
     --accent-hi:  rgba(204,120,192,0.53);
     --pos:        #50c0a8;
     --neg:        #e06080;
+    --neutral:    #e8904c;
   }
 
   :global(body.slate-theme) {
@@ -1069,6 +1095,7 @@ onDestroy(() => {
     --accent-hi:  rgba(112,144,170,0.53);
     --pos:        #60b890;
     --neg:        #c07070;
+    --neutral:    #c89050;
   }
 
   :global(body.forest-theme) {
@@ -1091,6 +1118,7 @@ onDestroy(() => {
     --accent-hi:  rgba(104,184,108,0.53);
     --pos:        #70c880;
     --neg:        #d07050;
+    --neutral:    #d09040;
   }
 
   :global(body.ocean-theme) {
@@ -1113,6 +1141,7 @@ onDestroy(() => {
     --accent-hi:  rgba(78,168,200,0.53);
     --pos:        #48c890;
     --neg:        #e07060;
+    --neutral:    #d09040;
   }
 
   :global(body.midnight-theme) {
@@ -1135,6 +1164,7 @@ onDestroy(() => {
     --accent-hi:  rgba(120,120,192,0.53);
     --pos:        #60b8a0;
     --neg:        #c87878;
+    --neutral:    #c89050;
   }
 
   :global(body.rose-theme) {
@@ -1157,6 +1187,7 @@ onDestroy(() => {
     --accent-hi:  rgba(200,64,96,0.53);
     --pos:        #70b880;
     --neg:        #b83858;
+    --neutral:    #d08038;
   }
 
   :global(body.ember-theme) {
@@ -1179,6 +1210,7 @@ onDestroy(() => {
     --accent-hi:  rgba(204,64,48,0.53);
     --pos:        #78b858;
     --neg:        #983030;
+    --neutral:    #d09040;
   }
 
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1266,6 +1298,7 @@ onDestroy(() => {
   }
   .theme-btn:hover { color: var(--text-sub); border-color: var(--accent-lo); }
   .theme-btn.active { border-color: var(--accent-hi); color: var(--accent); background: var(--bg-card); }
+
 
   .toggle {
     position: relative; width: 32px; height: 18px; border-radius: 9px;

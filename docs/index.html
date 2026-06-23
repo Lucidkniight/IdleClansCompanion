@@ -284,6 +284,57 @@
     footer a { color: var(--text-sub); transition: color 0.15s; }
     footer a:hover { color: var(--text); }
 
+    /* ── LIGHTBOX ── */
+    .screenshots-inner img {
+      cursor: zoom-in;
+    }
+
+    .lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .lightbox.open {
+      display: flex;
+    }
+
+    .lightbox img {
+      max-width: 100%;
+      max-height: 90vh;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+      cursor: zoom-out;
+    }
+
+    .lightbox-close {
+      position: fixed;
+      top: 1.25rem;
+      right: 1.5rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 1.25rem;
+      width: 2.25rem;
+      height: 2.25rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      line-height: 1;
+    }
+
+    .lightbox-close:hover { border-color: var(--accent); }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 640px) {
       nav { padding: 0.75rem 1rem; }
@@ -335,6 +386,10 @@
       <img src="screenshots/combatcalc.png" alt="Idle Clans Companion — combat calculator" loading="lazy" />
       <img src="screenshots/market.png" alt="Idle Clans Companion — live market prices" loading="lazy" />
       <img src="screenshots/playerlookup.png" alt="Idle Clans Companion — player lookup" loading="lazy" />
+      <img src="screenshots/bestiary.png" alt="Idle Clans Companion — bestiary" loading="lazy" />
+      <img src="screenshots/clan.png" alt="Idle Clans Companion — clan overview" loading="lazy" />
+      <img src="screenshots/clancup.png" alt="Idle Clans Companion — clan cup tracker" loading="lazy" />
+      <img src="screenshots/progresstracker.png" alt="Idle Clans Companion — progress tracker" loading="lazy" />
     </div>
   </div>
 
@@ -418,6 +473,33 @@
     </div>
     <div>Not affiliated with the Idle Clans development team. Fan-made tool, free forever.</div>
   </footer>
+
+  <div class="lightbox" id="lightbox">
+    <button class="lightbox-close" id="lightbox-close" aria-label="Close">✕</button>
+    <img id="lightbox-img" src="" alt="" />
+  </div>
+
+  <script>
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+
+    document.querySelectorAll('.screenshots-inner img').forEach(img => {
+      img.addEventListener('click', () => {
+        lightboxImg.src = img.src;
+        lightboxImg.alt = img.alt;
+        lightbox.classList.add('open');
+      });
+    });
+
+    function closeLightbox() {
+      lightbox.classList.remove('open');
+      lightboxImg.src = '';
+    }
+
+    document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
+    lightbox.addEventListener('click', e => { if (e.target === lightbox) closeLightbox(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+  </script>
 
 </body>
 </html>

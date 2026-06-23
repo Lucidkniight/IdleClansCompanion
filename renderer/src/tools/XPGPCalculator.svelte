@@ -314,7 +314,7 @@ function calcProfit(task: Task, cache: typeof $priceCache): { profitPerHr: numbe
   const powerForagerMult     = (task.skill === 'Foraging'   && modPowerForagerTier > 0) ? 1 + modPowerForagerTier : 1;
   const farmingSaveMult      = (task.skill === 'Farming'    && modFarmingTrickeryTier > 0) ? 1 - modFarmingTrickeryTier : 1;
   const plankSaveMult        = (task.skill === 'Carpentry'  && modPlankBargainTier > 0)    ? 1 - modPlankBargainTier   : 1;
-  const smeltingSaveMult     = (task.skill === 'Smithing'   && modSmeltingMagicTier > 0)   ? 1 - modSmeltingMagicTier  : 1;
+  const smeltingSaveMult     = (task.skill === 'Smithing'   && modSmeltingMagicTier > 0 && task.name.endsWith('_bar'))    ? 1 - modSmeltingMagicTier  : 1;
   const arrowMult            = (task.skill === 'Crafting'   && modArrowCrafter)     ? 1.10 : 1;
   const delicateSaveMult     = (task.skill === 'Crafting'   && modDelicateManufacturing) ? 0.80 : 1;
   const outputValue = task.itemReward !== -1
@@ -434,20 +434,20 @@ function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?:
   }
   if (importUpgrades) {
     const upgs = profile.upgrades ?? {};
-    modFishermanTier = Math.min(upgs['theFisherman'] ?? 0, 5) * 0.20;
+    modFishermanTier = FISHERMAN_TIERS[Math.min(upgs['theFisherman'] ?? 0, 5)]?.value ?? 0;
     modBetterFisherman = (upgs['mostEfficientFisherman'] ?? 0) > 0;
-    modLumberjackTier = Math.min(upgs['theLumberjack'] ?? 0, 5) * 0.20;
+    modLumberjackTier = LUMBERJACK_TIERS[Math.min(upgs['theLumberjack'] ?? 0, 5)]?.value ?? 0;
     modBetterLumberjack = (upgs['betterLumberjack'] ?? 0) > 0;
-    modPlayerHousing = Math.min(upgs['housing'] ?? 0, 5) * 0.05;
+    modPlayerHousing = PLAYER_HOUSING_TIERS[Math.min(upgs['housing'] ?? 0, 5)]?.value ?? 0;
     modHousing = HOUSING_TIERS[Math.min((clanProfile?.houseId ?? -1) + 1, 6)]?.value ?? 0;
     try {
       const clanUpgIds: number[] = clanProfile?.serializedUpgrades ? JSON.parse(clanProfile.serializedUpgrades) : [];
       modGatherers = clanUpgIds.includes(23);
     } catch { modGatherers = false; }
-    modPowerForagerTier = Math.min(upgs['powerForager'] ?? 0, 5) * 0.10;
-    modFarmingTrickeryTier = Math.min(upgs['farmingTrickery'] ?? 0, 5) * 0.10;
+    modPowerForagerTier = POWER_FORAGER_TIERS[Math.min(upgs['powerForager'] ?? 0, 5)]?.value ?? 0;
+    modFarmingTrickeryTier = FARMING_TRICKERY_TIERS[Math.min(upgs['farmingTrickery'] ?? 0, 5)]?.value ?? 0;
     modPlankBargainTier = PLANK_BARGAIN_MAP[Math.min(upgs['plankBargain'] ?? 0, 3)] ?? 0;
-    modSmeltingMagicTier = Math.min(upgs['smeltingMagic'] ?? 0, 3) * 0.10;
+    modSmeltingMagicTier = SMELTING_MAGIC_TIERS[Math.min(upgs['smeltingMagic'] ?? 0, 3)]?.value ?? 0;
     modArrowCrafter = (upgs['arrowCrafter'] ?? 0) > 0;
     modDelicateManufacturing = (upgs['delicateManufacturing'] ?? 0) > 0;
   }

@@ -151,7 +151,7 @@ Compiles both the renderer and Electron process, then produces a Windows install
 
 ### Adding a Community Tool
 
-Copy `renderer/src/tools/_Template.svelte` to a new file in the same folder (e.g. `MyTool.svelte`). Tools are auto-discovered at startup — no registration needed. The template includes the full `toolMeta` spec and inline comments explaining each field.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full step-by-step guide, guidelines, and how to open a pull request.
 
 ---
 

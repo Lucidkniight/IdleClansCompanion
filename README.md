@@ -115,6 +115,46 @@ You can opt out at any time via **Settings → Advanced → Opt out of analytics
 
 ---
 
+## Development
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) LTS (v20 or later)
+- Git
+
+### Getting Started
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/Lucidkniight/IdleClansCompanion.git
+cd IdleClansCompanion
+
+# 2. Install all dependencies
+npm run setup
+
+# 3. Start the app in dev mode
+npm run dev
+```
+
+This starts three processes concurrently:
+- **Vite** dev server for the Svelte renderer (`http://localhost:5173`)
+- **TypeScript** watcher for the Electron main process
+- **Electron** loading from the Vite dev server with hot reload
+
+### Building a Distributable
+
+```bash
+npm run package
+```
+
+Compiles both the renderer and Electron process, then produces a Windows installer under `build/`.
+
+### Adding a Community Tool
+
+Copy `renderer/src/tools/_Template.svelte` to a new file in the same folder (e.g. `MyTool.svelte`). Tools are auto-discovered at startup — no registration needed. The template includes the full `toolMeta` spec and inline comments explaining each field.
+
+---
+
 ## Disclaimer
 
 This project is a fan-made tool and is not affiliated with, endorsed by, or connected to the Idle Clans development team. All game data, item names, and game mechanics are the property of their respective owners.

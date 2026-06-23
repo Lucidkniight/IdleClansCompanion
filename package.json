@@ -5,6 +5,7 @@
   "main": "dist/electron/app.js",
   "scripts": {
     "setup": "npm install && cd renderer && npm install",
+    "dev:site": "npx serve docs",
     "dev": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\" \"cd electron && tsc -w\"",
     "package": "npm run build:renderer && npm run build:electron && electron-builder && node rename-build.js",
     "build:electron": "cd electron && tsc && node -e \"require('fs').copyFileSync('icon.ico', '../dist/electron/icon.ico')\"",

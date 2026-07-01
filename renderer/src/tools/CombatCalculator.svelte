@@ -42,6 +42,7 @@
   type EnchantType = 'attack' | 'strength' | 'defence' | 'archery' | 'magic' | 'exterminating';
 
   const ENCHANT_TYPES: EnchantType[] = ['attack', 'strength', 'defence', 'archery', 'magic', 'exterminating'];
+  const SLOT_ORDER = SLOTS.map(s => s.key);
   const ENCHANT_LABELS: Record<EnchantType, string> = {
     attack: 'Atk', strength: 'Str', defence: 'Def', archery: 'Arch', magic: 'Mag', exterminating: 'Ext',
   };
@@ -66,16 +67,59 @@
   }
 
   function renumber(list: Loadout[]): Loadout[] {
-    return list.map((l, i) => ({ ...l, label: `${i + 1}` }));
+    return list.map((l, i) => ({ ...l, label: /^\d*$/.test(l.label) ? `${i + 1}` : l.label }));
   }
 
   let loadouts: Loadout[] = [emptyLoadout(0, '1')];
   let activeIdx = 0;
   let nextId = 1;
-  let expandedResults = new Set<number>();
   let selectedDropItemId: number | null = null;
   let dropTableOpen = false;
   let dropTableSearch = '';
+
+  let tooltipVisible = false;
+  let tooltipTitle = '';
+  let tooltipDesc = '';
+  let tooltipX = 0;
+  let tooltipY = 0;
+
+  interface SavedLoadout {
+    name: string;
+    equipped: Record<string, number>;
+    enchants: Enchants;
+    savedAt: number;
+  }
+
+  let savedLoadouts: SavedLoadout[] = [];
+
+  // Add loadout modal
+  let addModalOpen = false;
+  let addCodeInput = '';
+  let addCodeError = '';
+
+  // Tab options modal
+  let tabMenuOpen = false;
+  let tabMenuMode: 'menu' | 'rename' | 'save' | 'export' = 'menu';
+  let tabMenuRenameValue = '';
+  let tabMenuSaveNameValue = '';
+  let tabMenuExportCode = '';
+  let tabMenuSaveError = '';
+  let tabMenuCopied = false;
+
+  function positionTooltip(e: MouseEvent) {
+    const GAP = 14, TIP_W = 214, TIP_H = 72;
+    tooltipX = e.clientX + GAP + TIP_W > window.innerWidth
+      ? Math.max(4, e.clientX - GAP - TIP_W) : e.clientX + GAP;
+    tooltipY = e.clientY + GAP + TIP_H > window.innerHeight
+      ? Math.max(4, e.clientY - GAP - TIP_H) : e.clientY + GAP;
+  }
+  function showTooltip(e: MouseEvent, title: string, desc: string) {
+    tooltipTitle = title; tooltipDesc = desc;
+    positionTooltip(e);
+    tooltipVisible = true;
+  }
+  function moveTooltip(e: MouseEvent) { positionTooltip(e); }
+  function hideTooltip() { tooltipVisible = false; }
 
   let attackLevel   = 1;
   let strengthLevel = 1;
@@ -154,7 +198,12 @@
     const q = monsterSearch.trim().toLowerCase();
     return $allMonsters
       .filter(m => !q || formatMonsterName(m.name).toLowerCase().includes(q))
-      .sort((a, b) => (a.isBoss === b.isBoss ? a.health - b.health : a.isBoss ? 1 : -1))
+      .sort((a, b) => {
+        const aIsAnyBoss = a.isBoss || a.bossType > 0;
+        const bIsAnyBoss = b.isBoss || b.bossType > 0;
+        if (aIsAnyBoss !== bIsAnyBoss) return aIsAnyBoss ? 1 : -1;
+        return a.health - b.health;
+      })
       .slice(0, q ? 200 : 100);
   })();
 
@@ -365,6 +414,146 @@
     } finally {
       importLoading = false;
     }
+  }
+
+  // ── Build library ──────────────────────────────────────────────────────────
+
+  function loadSavedLoadouts(): SavedLoadout[] {
+    try { return JSON.parse(localStorage.getItem('icc-combat-saves') ?? '[]'); }
+    catch { return []; }
+  }
+
+  function persistSaves(list: SavedLoadout[]) {
+    localStorage.setItem('icc-combat-saves', JSON.stringify(list));
+    savedLoadouts = list;
+  }
+
+  function encodeLoadout(l: Loadout): string {
+    // 38+n bytes: 1 version + 15 slots×uint16-LE + 6 enchants×uint8 + 1 name-len + n name-bytes
+    const nameBytes = new TextEncoder().encode(l.label ?? '');
+    const nameLen = Math.min(nameBytes.length, 255);
+    const buf = new Uint8Array(38 + nameLen);
+    buf[0] = 1;
+    for (let i = 0; i < 15; i++) {
+      const id = Math.max(0, l.equipped[SLOT_ORDER[i]] ?? 0);
+      buf[1 + i * 2] = id & 0xFF;
+      buf[2 + i * 2] = (id >> 8) & 0xFF;
+    }
+    for (let i = 0; i < 6; i++) {
+      buf[31 + i] = Math.round(l.enchants[ENCHANT_TYPES[i]] ?? 0);
+    }
+    buf[37] = nameLen;
+    buf.set(nameBytes.slice(0, nameLen), 38);
+    return 'ICC-' + btoa(String.fromCharCode(...buf));
+  }
+
+  function decodeLoadoutCode(code: string): { equipped: Record<string, number>; enchants: Enchants; name: string } | null {
+    try {
+      const trimmed = code.trim();
+      if (!trimmed.startsWith('ICC-')) return null;
+      const raw = atob(trimmed.slice(4));
+      if (raw.charCodeAt(0) !== 1 || raw.length < 38) return null;
+      const nameLen = raw.charCodeAt(37);
+      if (raw.length !== 38 + nameLen) return null;
+      const equipped: Record<string, number> = {};
+      for (let i = 0; i < 15; i++) {
+        const id = raw.charCodeAt(1 + i * 2) | (raw.charCodeAt(2 + i * 2) << 8);
+        if (id > 0) equipped[SLOT_ORDER[i]] = id;
+      }
+      const enchants = emptyEnchants();
+      for (let i = 0; i < 6; i++) {
+        enchants[ENCHANT_TYPES[i]] = raw.charCodeAt(31 + i);
+      }
+      const nameBytes = new Uint8Array(nameLen);
+      for (let i = 0; i < nameLen; i++) nameBytes[i] = raw.charCodeAt(38 + i);
+      const name = new TextDecoder().decode(nameBytes);
+      return { equipped, enchants, name };
+    } catch { return null; }
+  }
+
+  function deleteSave(name: string) {
+    persistSaves(loadSavedLoadouts().filter(s => s.name !== name));
+  }
+
+  // ── Add loadout modal ──────────────────────────────────────────────────────
+
+  function openAddModal() {
+    savedLoadouts = loadSavedLoadouts();
+    addModalOpen = true;
+    addCodeInput = '';
+    addCodeError = '';
+  }
+
+  function closeAddModal() {
+    addModalOpen = false;
+    addCodeInput = '';
+    addCodeError = '';
+  }
+
+  function addDuplicate() {
+    addLoadout();
+    closeAddModal();
+  }
+
+  function addFromSave(save: SavedLoadout) {
+    nextId++;
+    loadouts = [...loadouts, { id: nextId, label: save.name, equipped: { ...save.equipped }, enchants: { ...save.enchants } }];
+    activeIdx = loadouts.length - 1;
+    closeAddModal();
+  }
+
+  function addFromCode() {
+    const decoded = decodeLoadoutCode(addCodeInput);
+    if (!decoded) { addCodeError = 'Invalid code'; return; }
+    nextId++;
+    loadouts = [...loadouts, { id: nextId, label: decoded.name || `${loadouts.length + 1}`, equipped: decoded.equipped, enchants: decoded.enchants }];
+    activeIdx = loadouts.length - 1;
+    closeAddModal();
+  }
+
+  // ── Tab options modal ──────────────────────────────────────────────────────
+
+  function openTabMenu() {
+    tabMenuOpen = true;
+    tabMenuMode = 'menu';
+    tabMenuRenameValue = loadouts[activeIdx]?.label ?? '';
+    tabMenuSaveNameValue = loadouts[activeIdx]?.label ?? '';
+    tabMenuExportCode = '';
+    tabMenuSaveError = '';
+    tabMenuCopied = false;
+  }
+
+  function closeTabMenu() { tabMenuOpen = false; }
+
+  function doRename() {
+    const name = tabMenuRenameValue.trim();
+    if (!name) return;
+    const updated = [...loadouts];
+    updated[activeIdx] = { ...updated[activeIdx], label: name };
+    loadouts = updated;
+    closeTabMenu();
+  }
+
+  function doSaveToLibrary() {
+    const name = tabMenuSaveNameValue.trim();
+    if (!name) { tabMenuSaveError = 'Enter a name'; return; }
+    const saves = loadSavedLoadouts();
+    const idx = saves.findIndex(s => s.name === name);
+    const entry: SavedLoadout = { name, equipped: { ...loadouts[activeIdx].equipped }, enchants: { ...loadouts[activeIdx].enchants }, savedAt: Date.now() };
+    if (idx >= 0) saves[idx] = entry; else saves.push(entry);
+    persistSaves(saves);
+    closeTabMenu();
+  }
+
+  function openExportMode() {
+    tabMenuExportCode = encodeLoadout(loadouts[activeIdx]);
+    tabMenuMode = 'export';
+    tabMenuCopied = false;
+  }
+
+  async function copyExportCode() {
+    await navigator.clipboard.writeText(tabMenuExportCode);
+    tabMenuCopied = true;
   }
 
   function setLevel(field: 'attackLevel' | 'strengthLevel' | 'defenceLevel' | 'archeryLevel' | 'magicLevel', raw: string) {
@@ -640,6 +829,7 @@ function calcAugmented(level: number, bonus: number): number {
 
     let goldPerHour = 0;
     let marketGoldPerHour = 0;
+    let ritualPowerPerHour = 0;
     const keyDrops = new Map<number, number>();
     if (m && kph > 0) {
       const cache = $priceCache;
@@ -651,14 +841,19 @@ function calcAugmented(level: number, bonus: number): number {
         } else {
           marketGoldPerHour += qty * (cache[drop.itemId]?.highestBuy ?? 0);
         }
+        const item = $allItems.find(i => i.id === drop.itemId);
+        if (item && item.ritualPowerModifier > 0) {
+          ritualPowerPerHour += qty * item.baseValue * item.ritualPowerModifier;
+        }
         if (keyItemIds.has(drop.itemId)) keyDrops.set(drop.itemId, (keyDrops.get(drop.itemId) ?? 0) + kph * drop.dropRate);
       }
     }
 
-    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn, goldPerHour, marketGoldPerHour, keyDrops };
+    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn, goldPerHour, marketGoldPerHour, ritualPowerPerHour, keyDrops };
   });
 
   onMount(async () => {
+    savedLoadouts = loadSavedLoadouts();
     await loadGameConfig();
   });
 </script>
@@ -796,9 +991,10 @@ function calcAugmented(level: number, bonus: number): number {
           </button>
         {/each}
       </div>
-      {#if loadouts.length < 5}
-        <button class="tab-add" on:click={addLoadout} title="Add loadout">+</button>
+      {#if loadouts.length < 4}
+        <button class="tab-add" on:click={openAddModal} title="Add loadout">+</button>
       {/if}
+      <button class="tab-options-btn" on:click={openTabMenu} title="Loadout options">···</button>
       <button class="clear-loadout-btn" on:click={clearLoadout} title="Clear loadout">
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M1 3h10M4 3V2h4v1M5 5.5v4M7 5.5v4M2 3l.7 7.5a.5.5 0 00.5.5h5.6a.5.5 0 00.5-.5L10 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -930,33 +1126,61 @@ function calcAugmented(level: number, bonus: number): number {
   <!-- Results comparison -->
   {#if selectedMonster}
   {@const bestDPS = Math.max(...allDPS.map(d => d.dps))}
+  {@const bestKPH = Math.max(...allDPS.map(d => d.kph))}
+  {@const bestXP  = Math.max(...allDPS.map(d => d.xpPerHour))}
+  {@const bestMkt = Math.max(...allDPS.map(d => d.marketGoldPerHour))}
   <div class="section">
     <div class="section-label">Results vs {formatMonsterName(selectedMonster.name)}</div>
     <div class="results-wrap">
-      {#each allDPS as d, i}
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <div class="result-card" class:result-card-open={expandedResults.has(i)} on:click={() => { if (expandedResults.has(i)) { expandedResults.delete(i); } else { expandedResults.add(i); } expandedResults = expandedResults; }} role="button" tabindex="0">
+
+    {#if loadouts.length === 1}
+      {@const d = allDPS[0]}
+      {@const soloLabel = /^\d+$/.test(loadouts[0].label) ? `Loadout ${loadouts[0].label}` : loadouts[0].label}
+      <div class="result-solo">
         <div class="result-header">
-          <span class="result-name" class:result-name-active={i === activeIdx}>Loadout {loadouts[i].label}</span>
-          <div class="result-header-right">
-            <span class="result-style-badge">{d.style[0].toUpperCase() + d.style.slice(1)}</span>
-            <svg class="result-chevron" class:expanded={expandedResults.has(i)} viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M2 4.5L6 8.5L10 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+          <span class="result-name result-name-active">{soloLabel}</span>
+          <span class="result-style-badge">{d.style[0].toUpperCase() + d.style.slice(1)}</span>
+        </div>
+        <div class="result-hero">
+          <div class="result-hero-stat">
+            <span class="result-hero-label">DPS</span>
+            <span class="result-hero-value">{d.dps > 0 ? d.dps.toFixed(2) : '—'}</span>
+          </div>
+          <div class="result-hero-divider"></div>
+          <div class="result-hero-stat">
+            <span class="result-hero-label">KPH</span>
+            <span class="result-hero-value">{d.kph > 0 ? Math.round(d.kph).toString() : '—'}</span>
+          </div>
+          <div class="result-hero-divider"></div>
+          <div class="result-hero-stat">
+            <span class="result-hero-label">XP/h</span>
+            <span class="result-hero-value">{d.xpPerHour > 0 ? formatGold(Math.round(d.xpPerHour)) : '—'}</span>
           </div>
         </div>
-        <div class="result-main">
-          <div class="result-cell">
+        <div class="result-details-always">
+          <div class="result-detail-cell">
             <span class="result-label">Hit%</span>
-            <span class="result-value">{d.hitChance > 0 ? (d.hitChance * 100).toFixed(2) + '%' : '—'}</span>
+            <span class="result-value">{d.hitChance > 0 ? (d.hitChance * 100).toFixed(1) + '%' : '—'}</span>
           </div>
-          <div class="result-cell">
+          <div class="result-detail-cell">
             <span class="result-label">Hit Range</span>
             <span class="result-value">{d.maxHit > 0 ? `${d.minHit}–${d.maxHit}` : '—'}</span>
           </div>
-          <div class="result-cell" class:result-best={d.dps > 0 && d.dps === bestDPS}>
-            <span class="result-label">DPS</span>
-            <span class="result-value">{d.dps > 0 ? d.dps.toFixed(2) : '—'}</span>
+          <div class="result-detail-cell">
+            <span class="result-label">Avg Hit</span>
+            <span class="result-value">{d.avgHit > 0 ? d.avgHit.toFixed(1) : '—'}</span>
+          </div>
+          <div class="result-detail-cell">
+            <span class="result-label">Atk Speed</span>
+            <span class="result-value">{(d.interval / 1000).toFixed(2)}s</span>
+          </div>
+          <div class="result-detail-cell">
+            <span class="result-label">TTK</span>
+            <span class="result-value">{d.ttk > 0 ? d.ttk.toFixed(1) + 's' : '—'}</span>
+          </div>
+          <div class="result-detail-cell">
+            <span class="result-label">Respawn</span>
+            <span class="result-value">{d.respawn > 0 ? d.respawn.toFixed(1) + 's' : '—'}</span>
           </div>
         </div>
         {#if selectedDropItemId !== null}
@@ -975,64 +1199,259 @@ function calcAugmented(level: number, bonus: number): number {
             </div>
           {/if}
         {/if}
-        {#if expandedResults.has(i)}
-          <div class="result-details">
-            <div class="result-detail-cell">
-              <span class="result-label">Atk Speed</span>
-              <span class="result-value">{(d.interval / 1000).toFixed(2)}s</span>
-            </div>
-            <div class="result-detail-cell">
-              <span class="result-label">Avg Hit</span>
-              <span class="result-value">{d.avgHit > 0 ? d.avgHit.toFixed(2) : '—'}</span>
-            </div>
-            <div class="result-detail-cell">
-              <span class="result-label">XP/h</span>
-              <span class="result-value">{d.xpPerHour > 0 ? Math.round(d.xpPerHour).toLocaleString() : '—'}</span>
-            </div>
-            <div class="result-detail-cell">
-              <span class="result-label">TTK</span>
-              <span class="result-value">{d.ttk > 0 ? d.ttk.toFixed(1) + 's' : '—'}</span>
-            </div>
-            <div class="result-detail-cell">
-              <span class="result-label">KPH</span>
-              <span class="result-value">{d.kph > 0 ? Math.round(d.kph).toString() : '—'}</span>
-            </div>
-            <div class="result-detail-cell">
-              <span class="result-label">Respawn</span>
-              <span class="result-value">{d.respawn > 0 ? d.respawn.toFixed(1) + 's' : '—'}</span>
-            </div>
-          </div>
-          {#if d.goldPerHour > 0 || d.marketGoldPerHour > 0 || d.keyDrops.size > 0}
-          <div class="result-profit">
+        {#if d.marketGoldPerHour > 0 || d.goldPerHour > 0 || d.ritualPowerPerHour > 0 || d.keyDrops.size > 0}
+          <div class="result-profit-section">
             <span class="result-section-label">Profit</span>
             {#if d.marketGoldPerHour > 0}
-            <div class="result-detail-cell">
-              <span class="result-label">Market/h</span>
-              <span class="result-value">{formatGold(Math.round(d.marketGoldPerHour))}</span>
-            </div>
+              <div class="result-detail-cell">
+                <span class="result-label">Market/h</span>
+                <span class="result-value">{formatGold(Math.round(d.marketGoldPerHour))}</span>
+              </div>
             {/if}
             {#if d.goldPerHour > 0}
-            <div class="result-detail-cell">
-              <span class="result-label">Raw gold/h</span>
-              <span class="result-value">{formatGold(Math.round(d.goldPerHour))}</span>
-            </div>
+              <div class="result-detail-cell">
+                <span class="result-label">Raw gold/h</span>
+                <span class="result-value">{formatGold(Math.round(d.goldPerHour))}</span>
+              </div>
+            {/if}
+            {#if d.ritualPowerPerHour > 0}
+              <div class="result-detail-cell">
+                <span class="result-label">Ritual/h</span>
+                <span class="result-value">{formatGold(Math.round(d.ritualPowerPerHour))}</span>
+              </div>
             {/if}
             {#each [...d.keyDrops.entries()] as [itemId, rate]}
-            <div class="result-detail-cell">
-              <span class="result-label">{formatItemName($allItems.find(i => i.id === itemId)?.name ?? `key_${itemId}`)}/h</span>
-              <span class="result-value">{rate.toFixed(2)}</span>
-            </div>
+              <div class="result-detail-cell">
+                <span class="result-label">{formatItemName($allItems.find(i => i.id === itemId)?.name ?? `key_${itemId}`)}/h</span>
+                <span class="result-value">{rate.toFixed(2)}</span>
+              </div>
             {/each}
           </div>
-          {/if}
         {/if}
       </div>
-      {/each}
+
+    {:else}
+      <!-- Multiple loadouts: table layout -->
+      <div class="result-table-wrap">
+        <table class="result-table">
+          <thead>
+            <tr>
+              <th class="rt-label-col"></th>
+              {#each loadouts as l, i}
+                <th class="rt-head-cell" class:rt-active={i === activeIdx}>
+                  <div class="rt-head-inner">
+                    <span class="rt-head-name">{l.label}</span>
+                    <span class="rt-head-style">{allDPS[i].style[0].toUpperCase() + allDPS[i].style.slice(1)}</span>
+                  </div>
+                </th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="rt-stat" on:mouseenter={(e) => showTooltip(e, 'DPS', 'Damage Per Second — effective DPS accounting for hit chance, attack speed, and the full kill/respawn cycle')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>DPS</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-hero" class:rt-best={d.dps > 0 && d.dps === bestDPS}>{d.dps > 0 ? d.dps.toFixed(2) : '—'}</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat" on:mouseenter={(e) => showTooltip(e, 'KPH', 'Kills Per Hour — full kill cycle time including respawn wait')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>KPH</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-hero" class:rt-best={d.kph > 0 && d.kph === bestKPH}>{d.kph > 0 ? Math.round(d.kph).toString() : '—'}</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat" on:mouseenter={(e) => showTooltip(e, 'XP/h', 'Experience Per Hour — 4 XP earned per point of damage dealt')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>XP/h</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-hero" class:rt-best={d.xpPerHour > 0 && d.xpPerHour === bestXP}>{d.xpPerHour > 0 ? formatGold(Math.round(d.xpPerHour)) : '—'}</td>
+              {/each}
+            </tr>
+            <tr class="rt-divider"><td class="rt-divider-cell" colspan={loadouts.length + 1}></td></tr>
+            <tr>
+              <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Hit%', 'Hit Chance — probability of landing a successful hit per attack')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Hit%</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-sub">{d.hitChance > 0 ? (d.hitChance * 100).toFixed(1) + '%' : '—'}</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Hit Range', 'Hit Range — minimum and maximum damage per successful hit')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Hit Range</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-sub">{d.maxHit > 0 ? `${d.minHit}–${d.maxHit}` : '—'}</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Avg Hit', 'Average Hit — expected damage per attack (hit chance × average of the hit range)')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Avg Hit</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-sub">{d.avgHit > 0 ? d.avgHit.toFixed(1) : '—'}</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Atk Speed', 'Attack Speed — time between each attack')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Atk Speed</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-sub">{(d.interval / 1000).toFixed(2)}s</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'TTK', 'Time to Kill — expected seconds to defeat this enemy, not including respawn')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>TTK</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-sub">{d.ttk > 0 ? d.ttk.toFixed(1) + 's' : '—'}</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Respawn', 'Respawn Time — delay before the enemy reappears after being killed')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Respawn</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-sub">{d.respawn > 0 ? d.respawn.toFixed(1) + 's' : '—'}</td>
+              {/each}
+            </tr>
+            {#if allDPS.some(d => d.marketGoldPerHour > 0)}
+              <tr class="rt-divider"><td class="rt-divider-cell" colspan={loadouts.length + 1}></td></tr>
+              <tr>
+                <td class="rt-stat" on:mouseenter={(e) => showTooltip(e, 'Market/h', 'Market Gold Per Hour — loot sold at current market buy prices')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Market/h</td>
+                {#each allDPS as d}
+                  <td class="rt-val rt-hero" class:rt-best={d.marketGoldPerHour > 0 && d.marketGoldPerHour === bestMkt}>{d.marketGoldPerHour > 0 ? formatGold(Math.round(d.marketGoldPerHour)) : '—'}</td>
+                {/each}
+              </tr>
+              {#if allDPS.some(d => d.goldPerHour > 0)}
+                <tr>
+                  <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Raw Gold/h', 'Raw Gold Per Hour — direct gold drops only, not counting sellable items')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Raw gold/h</td>
+                  {#each allDPS as d}
+                    <td class="rt-val rt-sub">{d.goldPerHour > 0 ? formatGold(Math.round(d.goldPerHour)) : '—'}</td>
+                  {/each}
+                </tr>
+              {/if}
+              {#if allDPS.some(d => d.ritualPowerPerHour > 0)}
+                <tr>
+                  <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Ritual/h', 'Ritual Power Per Hour — estimated invocation ritual power from sacrificing loot')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Ritual/h</td>
+                  {#each allDPS as d}
+                    <td class="rt-val rt-sub">{d.ritualPowerPerHour > 0 ? formatGold(Math.round(d.ritualPowerPerHour)) : '—'}</td>
+                  {/each}
+                </tr>
+              {/if}
+            {/if}
+            {#if selectedDropItemId !== null}
+              {@const targetDrop = selectedMonster?.loot.find(l => l.itemId === selectedDropItemId)}
+              {#if targetDrop}
+                {@const dropItemName = formatItemName($allItems.find(i => i.id === selectedDropItemId)?.name ?? `#${selectedDropItemId}`)}
+                <tr class="rt-divider"><td class="rt-divider-cell" colspan={loadouts.length + 1}></td></tr>
+                <tr>
+                  <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, dropItemName, `1 in ${Math.round(1 / targetDrop.dropRate).toLocaleString()} kills (${(targetDrop.dropRate * 100).toFixed(2)}% drop rate) — time shown is the expected wait between drops`)} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>{dropItemName}</td>
+                  {#each allDPS as d}
+                    <td class="rt-val rt-sub">{d.kph > 0 ? formatDropTime(d.kph, targetDrop.dropRate) : '—'}</td>
+                  {/each}
+                </tr>
+              {/if}
+            {/if}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+
     </div>
   </div>
   {/if}
 
 </div>
+
+{#if tooltipVisible}
+  <div class="stat-tip" style="left:{tooltipX}px;top:{tooltipY}px">
+    <strong class="stat-tip-title">{tooltipTitle}</strong>
+    {#if tooltipDesc}<span class="stat-tip-desc">{tooltipDesc}</span>{/if}
+  </div>
+{/if}
+
+{#if addModalOpen}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="picker-backdrop" on:click={closeAddModal}></div>
+  <div class="import-panel add-loadout-panel">
+    <div class="picker-header">
+      <span class="picker-title">Add Loadout</span>
+      <button class="picker-close" on:click={closeAddModal}>×</button>
+    </div>
+    <div class="add-section">
+      <button class="add-option-btn" on:click={addDuplicate}>
+        <div class="add-option-body">
+          <span class="add-option-title">Duplicate Loadout {loadouts[activeIdx]?.label}</span>
+          <span class="add-option-desc">Copy current gear & enchants into a new tab</span>
+        </div>
+      </button>
+    </div>
+    <div class="add-section add-section-border">
+      <div class="add-section-label">Saved Builds</div>
+      {#if savedLoadouts.length === 0}
+        <div class="add-empty">No saved builds yet — use ··· to save one</div>
+      {:else}
+        <div class="add-saves-list">
+          {#each savedLoadouts as save (save.name)}
+            <div class="add-save-row">
+              <span class="add-save-name">{save.name}</span>
+              <button class="add-save-delete" on:click={() => deleteSave(save.name)} title="Delete">×</button>
+              <button class="add-save-load" on:click={() => addFromSave(save)}>Load</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="add-section add-section-border">
+      <div class="add-section-label">Import from Code</div>
+      <div class="search-row">
+        <input class="search-input" placeholder="Paste code…" bind:value={addCodeInput} on:keydown={(e) => e.key === 'Enter' && addFromCode()} use:focusOnMount />
+        <button class="search-btn" on:click={addFromCode}>Load</button>
+      </div>
+      {#if addCodeError}<div class="search-error">{addCodeError}</div>{/if}
+    </div>
+  </div>
+{/if}
+
+{#if tabMenuOpen}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="picker-backdrop" on:click={closeTabMenu}></div>
+  <div class="import-panel tab-menu-panel">
+    <div class="picker-header">
+      <span class="picker-title">{loadouts[activeIdx]?.label}</span>
+      <button class="picker-close" on:click={closeTabMenu}>×</button>
+    </div>
+    {#if tabMenuMode === 'menu'}
+      <div class="tab-menu-options">
+        <button class="tab-menu-option" on:click={() => { tabMenuMode = 'rename'; tabMenuRenameValue = loadouts[activeIdx]?.label ?? ''; }}>
+          Rename
+        </button>
+        <button class="tab-menu-option" on:click={() => { tabMenuMode = 'save'; tabMenuSaveNameValue = loadouts[activeIdx]?.label ?? ''; tabMenuSaveError = ''; }}>
+          Save to Library
+        </button>
+        <button class="tab-menu-option" on:click={openExportMode}>
+          Export Code
+        </button>
+      </div>
+    {:else if tabMenuMode === 'rename'}
+      <div class="tab-menu-form">
+        <input class="search-input" bind:value={tabMenuRenameValue} use:focusOnMount placeholder="Loadout name…" on:keydown={(e) => e.key === 'Enter' && doRename()} />
+        <div class="tab-menu-btns">
+          <button class="tab-menu-btn-secondary" on:click={() => tabMenuMode = 'menu'}>Back</button>
+          <button class="search-btn" on:click={doRename}>Rename</button>
+        </div>
+      </div>
+    {:else if tabMenuMode === 'save'}
+      <div class="tab-menu-form">
+        <input class="search-input" bind:value={tabMenuSaveNameValue} use:focusOnMount placeholder="Build name…" on:keydown={(e) => e.key === 'Enter' && doSaveToLibrary()} />
+        {#if tabMenuSaveError}<div class="search-error">{tabMenuSaveError}</div>{/if}
+        <div class="tab-menu-btns">
+          <button class="tab-menu-btn-secondary" on:click={() => tabMenuMode = 'menu'}>Back</button>
+          <button class="search-btn" on:click={doSaveToLibrary}>Save</button>
+        </div>
+      </div>
+    {:else if tabMenuMode === 'export'}
+      <div class="tab-menu-form">
+        <textarea class="tab-menu-code" readonly>{tabMenuExportCode}</textarea>
+        <div class="tab-menu-btns">
+          <button class="tab-menu-btn-secondary" on:click={() => tabMenuMode = 'menu'}>Back</button>
+          <button class="search-btn" on:click={copyExportCode}>{tabMenuCopied ? 'Copied!' : 'Copy'}</button>
+        </div>
+      </div>
+    {/if}
+  </div>
+{/if}
 
 {#if importModalOpen}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1699,47 +2118,29 @@ function calcAugmented(level: number, bonus: number): number {
   }
   .skill-field input:focus { border-color: var(--accent-md); }
 
-  /* ── Results cards ── */
+  /* ── Results section ── */
   .results-wrap {
-    padding: 4px 8px 4px;
+    padding: 4px 8px 6px;
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
 
-  .result-card {
+  /* Single loadout — Option B */
+  .result-solo {
     background: var(--bg-deep);
     border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
-    cursor: pointer;
-    transition: border-color 0.15s;
   }
-  .result-card:hover { border-color: var(--accent-lo); }
-  .result-card.result-card-open { border-color: var(--accent-lo); }
 
   .result-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 8px 3px;
+    padding: 5px 8px 4px;
     border-bottom: 1px solid var(--divider);
   }
-
-  .result-header-right {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .result-chevron {
-    width: 10px;
-    height: 10px;
-    color: var(--text-faint);
-    flex-shrink: 0;
-    transition: transform 0.2s;
-  }
-  .result-chevron.expanded { transform: rotate(180deg); }
 
   .result-name {
     font-size: 10px;
@@ -1759,25 +2160,78 @@ function calcAugmented(level: number, bonus: number): number {
     padding: 2px 5px;
   }
 
-  .result-main {
+  .result-hero {
     display: flex;
-    gap: 3px;
-    padding: 4px 6px 3px;
+    align-items: stretch;
+    padding: 10px 6px 8px;
   }
 
-  .result-cell {
+  .result-hero-stat {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 3px;
+  }
+
+  .result-hero-divider {
+    width: 1px;
+    background: var(--divider);
+    margin: 4px 0;
+    flex-shrink: 0;
+  }
+
+  .result-hero-label {
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .result-hero-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .result-details-always {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    padding: 5px 6px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .result-profit-section {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    padding: 5px 6px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .result-section-label {
+    grid-column: 1 / -1;
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-faint);
+    text-align: center;
+    padding-bottom: 2px;
+  }
+
+  .result-detail-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     background: var(--bg-raised);
-    border: 1px solid transparent;
     border-radius: 4px;
     padding: 3px 2px;
     min-width: 0;
   }
-  .result-cell.result-best { border-color: var(--pos); }
-  .result-cell.result-best .result-value { color: var(--pos); }
 
   .result-label {
     font-size: 7px;
@@ -1796,43 +2250,114 @@ function calcAugmented(level: number, bonus: number): number {
     white-space: nowrap;
   }
 
-  .result-value-accent { color: var(--accent) !important; }
-
-  .result-details {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 3px;
-    padding: 4px 6px 5px;
-    border-top: 1px solid var(--divider);
+  /* Multi-loadout table — Option D */
+  .result-table-wrap {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
   }
 
-  .result-profit {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 3px;
-    padding: 4px 6px 5px;
-    border-top: 1px solid var(--divider);
+  .result-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
   }
 
-  .result-section-label {
-    grid-column: 1 / -1;
-    font-size: 9px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-muted);
-    text-align: center;
-    padding-bottom: 2px;
+  .rt-label-col { width: 68px; }
+
+  .rt-head-cell {
+    padding: 5px 4px 4px;
+    border-bottom: 1px solid var(--divider);
   }
 
-  .result-detail-cell {
+  .rt-head-inner {
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 2px;
+  }
+
+  .rt-head-name {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-sub);
+  }
+  .rt-head-cell.rt-active .rt-head-name { color: var(--accent); }
+
+  .rt-head-style {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-faint);
     background: var(--bg-raised);
-    border-radius: 4px;
-    padding: 3px 2px;
-    min-width: 0;
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+
+  .rt-stat {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-sub);
+    padding: 4px 8px;
+    white-space: nowrap;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rt-stat.rt-sub {
+    font-size: 8px;
+    font-weight: 600;
+    color: var(--text-faint);
+  }
+
+  .rt-val {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text);
+    text-align: center;
+    padding: 3px 4px;
+    white-space: nowrap;
+  }
+  .rt-val.rt-hero { font-size: 13px; }
+  .rt-val.rt-sub { font-size: 10px; color: var(--text-sub); }
+  .rt-val.rt-best { color: var(--pos); }
+
+  .rt-divider-cell {
+    height: 1px;
+    background: var(--divider);
+    padding: 0;
+  }
+
+  /* ── Stat row tooltip ── */
+  .stat-tip {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 9px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 210px;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .stat-tip-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .stat-tip-desc {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-sub);
+    line-height: 1.4;
   }
 
   /* ── Enemy section ── */
@@ -2393,4 +2918,201 @@ function calcAugmented(level: number, bonus: number): number {
     color: var(--text);
     white-space: nowrap;
   }
+
+  /* ── Tab options button ── */
+  .tab-options-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    font-family: 'Nunito', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 0 5px 5px;
+    cursor: pointer;
+    transition: color 0.15s;
+    line-height: 1;
+    align-self: center;
+    flex-shrink: 0;
+    letter-spacing: 2px;
+  }
+  .tab-options-btn:hover { color: var(--accent); }
+
+  /* ── Add loadout modal ── */
+  .add-loadout-panel { width: 260px; }
+
+  .add-section { padding: 8px 10px; }
+  .add-section-border { border-top: 1px solid var(--divider); }
+
+  .add-section-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+
+  .add-option-btn {
+    width: 100%;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    text-align: left;
+  }
+  .add-option-btn:hover { border-color: var(--accent-md); }
+
+  .add-option-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .add-option-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .add-option-desc {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-faint);
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .add-empty {
+    font-size: 10px;
+    color: var(--text-faint);
+    font-weight: 600;
+    text-align: center;
+    padding: 4px 0 2px;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .add-saves-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .add-save-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 5px 8px;
+  }
+
+  .add-save-name {
+    flex: 1;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: 'Nunito', sans-serif;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .add-save-delete {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    flex-shrink: 0;
+    transition: color 0.15s;
+  }
+  .add-save-delete:hover { color: var(--neg); }
+
+  .add-save-load {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-sub);
+    font-family: 'Nunito', sans-serif;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .add-save-load:hover { border-color: var(--accent-md); color: var(--accent); }
+
+  /* ── Tab options modal ── */
+  .tab-menu-panel { width: 210px; }
+
+  .tab-menu-options { display: flex; flex-direction: column; }
+
+  .tab-menu-option {
+    width: 100%;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--divider);
+    color: var(--text-sub);
+    font-family: 'Nunito', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 10px 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+  }
+  .tab-menu-option:last-child { border-bottom: none; }
+  .tab-menu-option:hover { color: var(--text); background: var(--bg-raised); }
+
+  .tab-menu-form {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .tab-menu-btns {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  .tab-menu-btn-secondary {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-faint);
+    font-family: 'Nunito', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab-menu-btn-secondary:hover { color: var(--text); border-color: var(--accent-lo); }
+
+  .tab-menu-code {
+    width: 100%;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-sub);
+    font-family: monospace;
+    font-size: 8px;
+    padding: 6px 8px;
+    resize: none;
+    height: 56px;
+    outline: none;
+    box-sizing: border-box;
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .tab-menu-code:focus { border-color: var(--accent-md); }
 </style>

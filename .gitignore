@@ -13,3 +13,4 @@ dist/electron/
 *.exe
 *.dmg
 .claude/
+CLAUDE.md

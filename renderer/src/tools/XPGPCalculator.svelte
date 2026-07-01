@@ -13,7 +13,7 @@ import {
   profitTasks, profitSkills, clients, toolNavigation, allItems, allEquipment, priceCache,
   loadGameConfig, GATHERING_SKILLS, XP_TABLE, xpToLevel, formatGold, formatTime, navigate, formatItemName,
   fetchProfile, fetchClanProfile,
-  type Task, type ClientCard, type PlayerProfile, type ClanProfile,
+  type Task, type ClientCard, type PlayerProfile, type ClanProfile, type TaskSkillAdvantage,
 } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
 import DevPanel from '../lib/DevPanel.svelte';
@@ -314,16 +314,34 @@ function calcProfit(task: Task, cache: typeof $priceCache): { profitPerHr: numbe
   const powerForagerMult     = (task.skill === 'Foraging'   && modPowerForagerTier > 0) ? 1 + modPowerForagerTier : 1;
   const farmingSaveMult      = (task.skill === 'Farming'    && modFarmingTrickeryTier > 0) ? 1 - modFarmingTrickeryTier : 1;
   const plankSaveMult        = (task.skill === 'Carpentry'  && modPlankBargainTier > 0)    ? 1 - modPlankBargainTier   : 1;
-  const smeltingSaveMult     = (task.skill === 'Smithing'   && modSmeltingMagicTier > 0 && task.name.endsWith('_bar'))    ? 1 - modSmeltingMagicTier  : 1;
+  const smeltingSaveMult     = (task.skill === 'Smithing'   && modSmeltingMagicTier > 0 && task.name.endsWith('_bar') && task.name !== 'astronomical_bar' && task.name !== 'otherworldly_bar')    ? 1 - modSmeltingMagicTier  : 1;
   const arrowMult            = (task.skill === 'Crafting'   && modArrowCrafter)     ? 1.10 : 1;
   const delicateSaveMult     = (task.skill === 'Crafting'   && modDelicateManufacturing) ? 0.80 : 1;
-  const outputValue = task.itemReward !== -1
-    ? sellPrice(task.itemReward) * task.itemAmount * actionsPerHr * glovesMult * fishermanMult * lumberjackMult * powerForagerMult * arrowMult
-    : 0;
+  const GOLD_ID = 19;
+  let outputValue = 0;
+  if (task.itemReward !== -1) {
+    outputValue = sellPrice(task.itemReward) * task.itemAmount * actionsPerHr * glovesMult * fishermanMult * lumberjackMult * powerForagerMult * arrowMult;
+  } else if (task.loot && task.loot.length > 0) {
+    let successChance = task.baseSuccessChance ?? 0;
+    if (task.skillAdvantages && task.skillAdvantages.length > 0 && lastImportedProfile?.skillExperiences) {
+      const xpToLvl = (xp: number) => xpToLevel(xp);
+      const skillXp = lastImportedProfile.skillExperiences;
+      const avgContribution = task.skillAdvantages.reduce((sum, adv) => {
+        const lvl = xpToLvl(skillXp[adv.skillKey] ?? 0);
+        return sum + Math.min(lvl, adv.levelCap) / adv.levelCap;
+      }, 0) / task.skillAdvantages.length;
+      successChance = Math.min(1, successChance + (1 - successChance) * avgContribution);
+    }
+    outputValue = task.loot.reduce((sum, drop) => {
+      const price = drop.itemId === GOLD_ID ? 1 : sellPrice(drop.itemId);
+      return sum + price * drop.dropRate * drop.avgAmount * actionsPerHr * successChance;
+    }, 0);
+  }
   const inputCost = task.costs.reduce((s, c) => s + buyPrice(c.Item) * c.Amount * actionsPerHr, 0)
     * farmingSaveMult * plankSaveMult * smeltingSaveMult * delicateSaveMult;
   const hasData = (task.itemReward !== -1 && sellPrice(task.itemReward) > 0)
-               || task.costs.some(c => buyPrice(c.Item) > 0);
+               || task.costs.some(c => buyPrice(c.Item) > 0)
+               || (task.loot != null && task.loot.some(d => d.itemId === GOLD_ID || sellPrice(d.itemId) > 0));
   return { profitPerHr: outputValue - inputCost, outputValue, inputCost, hasData };
 }
 

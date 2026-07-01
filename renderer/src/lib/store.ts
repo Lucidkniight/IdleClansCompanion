@@ -29,11 +29,18 @@ export interface ClientCard {
 export interface MarketItem {
   id: number;
   name: string;
+  baseValue: number;
+  ritualPowerModifier: number;
 }
 
 export interface TaskCost {
   Item: number;
   Amount: number;
+}
+
+export interface TaskSkillAdvantage {
+  skillKey: string;
+  levelCap: number;
 }
 
 export interface Task {
@@ -46,7 +53,17 @@ export interface Task {
   costs: TaskCost[];
   skill: string;
   hasProfitValue: boolean;
+  loot?: MonsterLootEntry[];
+  baseSuccessChance?: number;
+  skillAdvantages?: TaskSkillAdvantage[];
 }
+
+export const PLUNDERING_SKILL_ID_MAP: Record<number, string> = {
+  7: 'crafting', 8: 'woodcutting', 9: 'carpentry', 10: 'fishing',
+  11: 'cooking', 12: 'mining', 13: 'smithing', 14: 'foraging',
+  15: 'farming', 16: 'agility', 17: 'plundering', 18: 'enchanting',
+  19: 'brewing', 21: 'invocation',
+};
 
 export interface PriceData {
   lowestSell: number;
@@ -486,6 +503,8 @@ export async function loadGameConfig() {
       allItems.set(data.Items.Items.map((item: any) => ({
         id: item.ItemId,
         name: item.Name,
+        baseValue: item.BaseValue ?? 0,
+        ritualPowerModifier: item.InvocationData?.SacrificialPowerModifier ?? 0,
       })).filter((i: MarketItem) => i.name && i.id >= 0));
     }
 
@@ -504,7 +523,22 @@ export async function loadGameConfig() {
       for (const group of groups) {
         for (const t of group.Items) {
           if (t.Disabled || t.Hidden) continue;
-          const hasProfitValue = t.ItemReward !== -1 || (t.Costs && t.Costs.length > 0);
+          const rawPlunderLoot: any[] = t.PlunderingLoot ?? [];
+          const plunderTotal = rawPlunderLoot.reduce((s: number, l: any) => s + (l.Weight ?? 0), 0);
+          const loot: MonsterLootEntry[] = plunderTotal > 0
+            ? rawPlunderLoot.map((l: any) => ({
+                itemId: l.ItemId,
+                dropRate: l.Weight / plunderTotal,
+                avgAmount: Math.max(1, ((l.ItemAmountMin ?? 0) + (l.ItemAmountMax ?? 0)) / 2),
+              }))
+            : [];
+          const skillAdvantages: TaskSkillAdvantage[] = loot.length > 0
+            ? (t.SkillAdvantages ?? []).map((a: any) => ({
+                skillKey: PLUNDERING_SKILL_ID_MAP[a.Skill] ?? null,
+                levelCap: a.LevelCap,
+              })).filter((a: TaskSkillAdvantage) => a.skillKey !== null)
+            : [];
+          const hasProfitValue = t.ItemReward !== -1 || (t.Costs && t.Costs.length > 0) || loot.length > 0;
           tasks.push({
             name: t.Name,
             level: t.LevelRequirement,
@@ -515,6 +549,9 @@ export async function loadGameConfig() {
             costs: t.Costs ?? [],
             skill: skillName,
             hasProfitValue,
+            loot: loot.length > 0 ? loot : undefined,
+            baseSuccessChance: loot.length > 0 ? (t.BaseSuccessChancePercentage ?? 0) / 100 : undefined,
+            skillAdvantages: skillAdvantages.length > 0 ? skillAdvantages : undefined,
           });
         }
       }
@@ -601,6 +638,40 @@ export async function loadGameConfig() {
         }
       }
     }
+    // Parse clan bosses from top-level ClanBossInfos
+    if (Array.isArray(data.ClanBossInfos)) {
+      for (const c of data.ClanBossInfos) {
+        if (!c.EnemyHealth) continue;
+        const rawLoot: any[] = c.LootTable ?? [];
+        const totalWeight = rawLoot.reduce((s: number, l: any) => s + (l.Weight ?? 0), 0);
+        const loot: MonsterLootEntry[] = totalWeight > 0
+          ? rawLoot.map((l: any) => ({
+              itemId: l.ItemId,
+              dropRate: l.Weight / totalWeight,
+              avgAmount: Math.max(1, ((l.ItemAmountMin ?? 0) + (l.ItemAmountMax ?? 0)) / 2),
+            }))
+          : [];
+        monsters.push({
+          name: c.BossNameLocalizationKey,
+          attackLevel: c.EnemyRigourLevel ?? 0,
+          strengthLevel: c.EnemyStrengthLevel ?? 0,
+          defenceLevel: c.EnemyDefenceLevel ?? 0,
+          archeryLevel: c.EnemyArcheryLevel ?? 0,
+          magicLevel: c.EnemyMagicLevel ?? 0,
+          health: c.EnemyHealth,
+          baseTime: 0,
+          respawnTime: c.EnemyRespawnTime ?? 0,
+          meleeDefenceBonus: c.EnemyDefenceBonus ?? 0,
+          archeryDefenceBonus: c.EnemyArcheryDefenceBonus ?? 0,
+          magicDefenceBonus: c.EnemyMagicDefenceBonus ?? 0,
+          weaknessType: c.AttackStyleWeakness ?? null,
+          isBoss: false,
+          bossType: c.BossType ?? 1,
+          loot,
+        });
+      }
+    }
+
     allMonsters.set(monsters);
 
     await refreshPrices();

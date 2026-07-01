@@ -12,6 +12,7 @@ import {
   formatItemName, formatGold, devMode,
 } from './lib/store';
 import { initAnalytics, setOptOut, track } from './lib/analytics';
+import CustomSelect from './lib/CustomSelect.svelte';
 
 // ── Tool discovery ────────────────────────────────────────────────────────────
 interface ToolMeta {
@@ -88,14 +89,17 @@ const FEEDBACK_FORM_URL      = 'https://docs.google.com/forms/d/e/1FAIpQLScbSYv3
 const FEEDBACK_ENTRY_TYPE    = 'entry.34567192';
 const FEEDBACK_ENTRY_DESC    = 'entry.1538414375';
 const FEEDBACK_ENTRY_VERSION = 'entry.387633934';
+const FEEDBACK_ENTRY_TOOL    = 'entry.2080847514';
 
 let showFeedbackModal = false;
 let feedbackType: 'Bug Report' | 'Suggestion' = 'Bug Report';
+let feedbackTool = 'General';
 let feedbackText = '';
 let feedbackState: 'idle' | 'submitting' | 'done' = 'idle';
 
 function openFeedback(type: 'Bug Report' | 'Suggestion') {
   feedbackType = type;
+  feedbackTool = 'General';
   feedbackText = '';
   feedbackState = 'idle';
   showFeedbackModal = true;
@@ -111,6 +115,7 @@ async function submitFeedback() {
   feedbackState = 'submitting';
   const body = new URLSearchParams({
     [FEEDBACK_ENTRY_TYPE]: feedbackType,
+    [FEEDBACK_ENTRY_TOOL]: feedbackTool,
     [FEEDBACK_ENTRY_DESC]: feedbackText.trim(),
     [FEEDBACK_ENTRY_VERSION]: __APP_VERSION__,
   });
@@ -978,6 +983,10 @@ onDestroy(() => {
         </div>
       {:else}
         <div class="modal-title">{feedbackType === 'Bug Report' ? 'Report a Bug' : 'Share Feedback'}</div>
+        <CustomSelect
+          bind:value={feedbackTool}
+          options={[{ label: 'General', value: 'General' }, ...TOOLS.map(t => ({ label: t.toolMeta.name, value: t.toolMeta.name }))]}
+        />
         <textarea
           class="feedback-textarea"
           placeholder={feedbackType === 'Bug Report' ? 'Describe the issue…' : 'Share your suggestions or thoughts…'}

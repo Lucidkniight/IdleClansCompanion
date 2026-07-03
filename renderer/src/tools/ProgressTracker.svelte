@@ -349,7 +349,6 @@
 
   {#if untrackedClients.length > 0}
     <div class="chip-section">
-      <div class="chip-label">Clients</div>
       <div class="chip-row">
         {#each untrackedClients as client}
           <button class="chip" on:click={() => { addInput = client.playerName!; handleAdd(); }}>
@@ -674,11 +673,6 @@
 
   /* ── Client chips ── */
   .chip-section { margin-bottom: 8px; display: flex; flex-direction: column; gap: 5px; }
-  .chip-label {
-    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
-    color: var(--accent); display: flex; align-items: center; gap: 8px; white-space: nowrap;
-  }
-  .chip-label::before, .chip-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
   .chip-row { display: flex; flex-wrap: wrap; gap: 3px; }
   .chip {
     background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;

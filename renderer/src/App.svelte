@@ -1,5 +1,8 @@
 <script context="module" lang="ts">
   declare const __APP_VERSION__: string;
+  // Captured at module load, before any component ever runs — the only safe point
+  // to distinguish "existing install" from "fresh download" for the changelog popup.
+  const _hadPriorInstall = localStorage.length > 0;
 </script>
 
 <script lang="ts">
@@ -9,7 +12,9 @@ import {
   clients, activeId, previews, updateReady, apiError, apiErrorLog,
   scan, focusClient, refreshPreviews, loadGameConfig, refreshPrices,
   toolNavigation, navigate, triggeredAlerts, dismissTriggeredAlert,
+  triggeredChatAlerts, dismissTriggeredChatAlert, refreshChat, CHAT_POLL_MS,
   formatItemName, formatGold, devMode,
+  fetchReleaseChangelog, renderChangelogMarkdown,
 } from './lib/store';
 import { initAnalytics, setOptOut, track } from './lib/analytics';
 import CustomSelect from './lib/CustomSelect.svelte';
@@ -110,6 +115,33 @@ function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = Math.max(140, el.scrollHeight) + 'px';
 }
 
+// ── Changelog ─────────────────────────────────────────────────────────────────
+const LAST_SEEN_VERSION_KEY = 's-last-seen-version';
+let showChangelogModal = false;
+let changelogVersion = __APP_VERSION__;
+let changelogHtml: string | null = null;
+let changelogLoading = false;
+
+async function openChangelog(version: string) {
+  changelogVersion = version;
+  changelogHtml = null;
+  changelogLoading = true;
+  showChangelogModal = true;
+  const body = await fetchReleaseChangelog(version);
+  changelogHtml = body ? renderChangelogMarkdown(body) : null;
+  changelogLoading = false;
+}
+
+function checkForChangelog() {
+  const lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY);
+  if (lastSeen !== __APP_VERSION__) {
+    // Only auto-show for installs that already existed before this update — a fresh
+    // download has nothing to show "what's new" relative to.
+    if (_hadPriorInstall) openChangelog(__APP_VERSION__);
+    localStorage.setItem(LAST_SEEN_VERSION_KEY, __APP_VERSION__);
+  }
+}
+
 async function submitFeedback() {
   if (!feedbackText.trim()) return;
   feedbackState = 'submitting';
@@ -127,11 +159,12 @@ async function submitFeedback() {
 }
 
 const WIPE_CATS = [
-  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out'] },
-  { id: 'alerts',    label: 'Price Alerts',     desc: 'Alert rules and triggered notification history',                 keys: ['icc-price-alerts','icc-triggered-alerts'] },
+  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out','s-last-seen-version'] },
+  { id: 'alerts',    label: 'Alerts',           desc: 'Price and chat word alert rules and triggered notification history', keys: ['icc-price-alerts','icc-triggered-alerts','icc-chat-alerts','icc-chat-triggered'] },
   { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], prefix: 'icc-tracker-snap-' },
+  { id: 'combat',    label: 'Combat Loadouts',  desc: 'Saved gear loadouts from the Combat Calculator library',        keys: ['icc-combat-saves'] },
   { id: 'notepad',   label: 'Notepad',          desc: 'All saved notes',                                               keys: ['notepad'] },
-  { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-xp-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent'] },
+  { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-calc-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent','icc-chat-channels','icc-chat-messages'] },
 ];
 let wipeSelected: Set<string> = new Set(WIPE_CATS.map(c => c.id));
 
@@ -228,6 +261,11 @@ function previewAlertSound() {
 function openAlertItem(alert: TriggeredAlert) {
   showAlerts = false;
   navigate('Market', String(alert.itemId));
+}
+
+function openChatAlertItem() {
+  showAlerts = false;
+  navigate('Chat', '');
 }
 
 // ── Game launcher ─────────────────────────────────────────────────────────────
@@ -355,6 +393,7 @@ $: {
 let refreshInterval: ReturnType<typeof setInterval>;
 let previewInterval: ReturnType<typeof setInterval>;
 let priceInterval: ReturnType<typeof setInterval>;
+let chatInterval: ReturnType<typeof setInterval>;
 
 // ── Client tab ────────────────────────────────────────────────────────────────
 function getOnlineStatus(profile: PlayerProfile): { online: boolean } {
@@ -404,6 +443,7 @@ function moveClient(client: ClientCard, dir: -1 | 1) {
 onMount(async () => {
   (window as any).electronAPI.setZoomFactor(settingZoom);
   initAnalytics(settingAnalyticsOptOut);
+  checkForChangelog();
   await loadGameConfig();
   await scan();
   track('app_started', {
@@ -418,6 +458,8 @@ onMount(async () => {
   _analyticsReady = true;
   refreshInterval = setInterval(scan, 10000);
   priceInterval  = setInterval(refreshPrices, 60 * 1000);
+  refreshChat();
+  chatInterval = setInterval(refreshChat, CHAT_POLL_MS);
   (window as any).electronAPI.onUpdateReady(() => {
     updateReady.set(true);
   });
@@ -427,6 +469,7 @@ onDestroy(() => {
   clearInterval(refreshInterval);
   clearInterval(previewInterval);
   clearInterval(priceInterval);
+  clearInterval(chatInterval);
 });
 </script>
 
@@ -446,7 +489,7 @@ onDestroy(() => {
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
           </svg>
-          {#if $triggeredAlerts.length > 0}
+          {#if $triggeredAlerts.length > 0 || $triggeredChatAlerts.length > 0}
             <span class="alert-dot"></span>
           {/if}
         </span>
@@ -678,7 +721,7 @@ onDestroy(() => {
     {#if showAlerts}
     <div class="alerts-content">
       <div class="section-header"><span>Alerts</span></div>
-      {#if $triggeredAlerts.length === 0}
+      {#if $triggeredAlerts.length === 0 && $triggeredChatAlerts.length === 0}
         <div class="alerts-empty">
           <div class="alerts-empty-icon">🔔</div>
           <p>No notifications</p>
@@ -696,6 +739,19 @@ onDestroy(() => {
                 <span class="alert-panel-tag">Market</span>
               </button>
               <button class="alert-panel-remove" on:click={() => dismissTriggeredAlert(alert.id)}>✕</button>
+            </div>
+          {/each}
+          {#each $triggeredChatAlerts as alert (alert.id)}
+            <div class="alert-panel-row">
+              <button class="alert-panel-main" on:click={openChatAlertItem}>
+                <img class="alert-panel-icon" src="./skilltaskicons/ChatboxIcon.png" alt="" />
+                <div class="alert-panel-info">
+                  <span class="alert-panel-name">"{alert.phrase}" — {alert.sender}</span>
+                  <span class="alert-panel-cond">{alert.text}</span>
+                </div>
+                <span class="alert-panel-tag">Chat</span>
+              </button>
+              <button class="alert-panel-remove" on:click={() => dismissTriggeredChatAlert(alert.id)}>✕</button>
             </div>
           {/each}
         </div>
@@ -904,7 +960,7 @@ onDestroy(() => {
   </div>
 
   <div class="footer">
-    <span class="version">v{__APP_VERSION__}</span>
+    <span class="version" role="button" tabindex="0" title="View changelog" on:click={() => openChangelog(__APP_VERSION__)} on:keydown={(e) => e.key === 'Enter' && openChangelog(__APP_VERSION__)}>v{__APP_VERSION__}</span>
   </div>
 </div>
 
@@ -1002,6 +1058,25 @@ onDestroy(() => {
           </button>
         </div>
       {/if}
+    </div>
+  </div>
+{/if}
+
+{#if showChangelogModal}
+  <div class="modal-overlay" role="presentation" on:click={() => showChangelogModal = false}>
+    <div class="modal changelog-modal" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+      <div class="modal-title">What's New — v{changelogVersion}</div>
+      {#if changelogLoading}
+        <p class="modal-body">Loading release notes…</p>
+      {:else if changelogHtml}
+        <div class="changelog-body">{@html changelogHtml}</div>
+      {:else}
+        <p class="modal-body">Couldn't load release notes for this version.</p>
+      {/if}
+      <div class="modal-actions">
+        <button class="modal-cancel" on:click={() => (window as any).electronAPI.openExternal(`https://github.com/Lucidkniight/IdleClansCompanion/releases/tag/v${changelogVersion}`)}>View on GitHub</button>
+        <button class="modal-submit" on:click={() => showChangelogModal = false}>Got it</button>
+      </div>
     </div>
   </div>
 {/if}
@@ -1566,7 +1641,8 @@ onDestroy(() => {
   .tab-hidden { display: none; }
 
   .footer { padding: 8px 14px; border-top: 1px solid var(--divider); display: flex; align-items: center; justify-content: flex-end; }
-  .version { font-size: 10px; color: var(--border); letter-spacing: 0.5px; }
+  .version { font-size: 10px; color: var(--border); letter-spacing: 0.5px; cursor: pointer; }
+  .version:hover { color: var(--text-faint); }
 
   .settings-group-danger .settings-group-label { color: var(--neg); }
   .wipe-btn {
@@ -1658,6 +1734,24 @@ onDestroy(() => {
   }
   .modal-submit:hover:not(:disabled) { background: var(--accent-md); border-color: var(--accent-hi); }
   .modal-submit:disabled { opacity: 0.5; cursor: default; }
+
+  .changelog-modal { width: 280px; }
+  .changelog-body {
+    font-size: 11px; color: var(--text-sub); line-height: 1.6;
+    max-height: 60vh; overflow-y: auto; padding-right: 4px;
+  }
+  /* Content inside is injected via {@html}, so Svelte never stamps its scoping
+     class onto it — these must be :global() or they silently never match. */
+  .changelog-body :global(.changelog-heading) {
+    font-size: 11px; font-weight: 700; color: var(--text-hi);
+    margin: 10px 0 4px;
+  }
+  .changelog-body :global(.changelog-heading:first-child) { margin-top: 0; }
+  .changelog-body :global(p) { margin: 0 0 6px; }
+  .changelog-body :global(ul) { margin: 0 0 6px; padding-left: 16px; }
+  .changelog-body :global(li) { margin-bottom: 3px; }
+  .changelog-body :global(li.changelog-li-nested) { list-style-type: circle; }
+  .changelog-body :global(strong) { color: var(--text-hi); }
 
   /* ── Alerts panel ── */
   .alerts-content { padding-right: 10px; }

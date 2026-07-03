@@ -477,6 +477,12 @@
 
   // ── Add loadout modal ──────────────────────────────────────────────────────
 
+  function hScroll(e: WheelEvent) {
+    if (e.deltaY === 0) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).scrollLeft += e.deltaY;
+  }
+
   function openAddModal() {
     savedLoadouts = loadSavedLoadouts();
     addModalOpen = true;
@@ -977,7 +983,7 @@ function calcAugmented(level: number, bonus: number): number {
   <div class="gear-section">
 
     <div class="tab-bar">
-      <div class="tab-scroll">
+      <div class="tab-scroll" on:wheel|nonpassive={hScroll}>
         {#each loadouts as loadout, i}
           <button
             class="tab"
@@ -991,7 +997,7 @@ function calcAugmented(level: number, bonus: number): number {
           </button>
         {/each}
       </div>
-      {#if loadouts.length < 4}
+      {#if loadouts.length < 20}
         <button class="tab-add" on:click={openAddModal} title="Add loadout">+</button>
       {/if}
       <button class="tab-options-btn" on:click={openTabMenu} title="Loadout options">···</button>
@@ -1232,7 +1238,7 @@ function calcAugmented(level: number, bonus: number): number {
 
     {:else}
       <!-- Multiple loadouts: table layout -->
-      <div class="result-table-wrap">
+      <div class="result-table-wrap" on:wheel|nonpassive={hScroll}>
         <table class="result-table">
           <thead>
             <tr>
@@ -2255,20 +2261,33 @@ function calcAugmented(level: number, bonus: number): number {
     background: var(--bg-deep);
     border: 1px solid var(--border);
     border-radius: 6px;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
+  .result-table-wrap::-webkit-scrollbar { height: 4px; }
+  .result-table-wrap::-webkit-scrollbar-track { background: transparent; }
+  .result-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .result-table {
-    width: 100%;
+    min-width: 100%;
     border-collapse: collapse;
-    table-layout: fixed;
+    table-layout: auto;
   }
 
-  .rt-label-col { width: 68px; }
+  .rt-label-col {
+    width: 68px;
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg-deep);
+  }
 
   .rt-head-cell {
     padding: 5px 4px 4px;
     border-bottom: 1px solid var(--divider);
+    min-width: 52px;
   }
 
   .rt-head-inner {
@@ -2305,6 +2324,10 @@ function calcAugmented(level: number, bonus: number): number {
     text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--bg-deep);
   }
   .rt-stat.rt-sub {
     font-size: 8px;

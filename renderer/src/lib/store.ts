@@ -90,6 +90,29 @@ export interface TriggeredAlert {
   triggeredAt: string;
 }
 
+export interface ChatAlertRule {
+  id: string;
+  phrase: string;
+}
+
+export interface ChatAlertCandidate {
+  channel: string;
+  sender: string;
+  text: string;
+  timestamp: string;
+}
+
+export interface TriggeredChatAlert {
+  id: string;
+  ruleId: string;
+  phrase: string;
+  channel: string;
+  sender: string;
+  text: string;
+  timestamp: string;
+  triggeredAt: string;
+}
+
 export interface EquipmentItem {
   id: number;
   name: string;
@@ -247,6 +270,200 @@ export function dismissTriggeredAlert(id: string): void {
   triggeredAlerts.update(list => list.filter(a => a.id !== id));
 }
 
+const _CHAT_ALERTS_KEY = 'icc-chat-alerts';
+export const chatAlerts = writable<ChatAlertRule[]>((() => {
+  try { return JSON.parse(localStorage.getItem(_CHAT_ALERTS_KEY) ?? '[]'); } catch { return []; }
+})());
+chatAlerts.subscribe(v => { try { localStorage.setItem(_CHAT_ALERTS_KEY, JSON.stringify(v)); } catch {} });
+
+export function addChatAlert(phrase: string): void {
+  const trimmed = phrase.trim();
+  if (!trimmed) return;
+  chatAlerts.update(list => {
+    if (list.some(a => a.phrase.toLowerCase() === trimmed.toLowerCase())) return list;
+    return [...list, { id: String(Date.now()), phrase: trimmed }];
+  });
+}
+
+export function removeChatAlert(id: string): void {
+  chatAlerts.update(list => list.filter(a => a.id !== id));
+}
+
+const _CHAT_TRIGGERED_KEY = 'icc-chat-triggered';
+const _CHAT_TRIGGERED_MAX = 100;
+export const triggeredChatAlerts = writable<TriggeredChatAlert[]>((() => {
+  try { return JSON.parse(localStorage.getItem(_CHAT_TRIGGERED_KEY) ?? '[]'); } catch { return []; }
+})());
+triggeredChatAlerts.subscribe(v => { try { localStorage.setItem(_CHAT_TRIGGERED_KEY, JSON.stringify(v)); } catch {} });
+
+export function dismissTriggeredChatAlert(id: string): void {
+  triggeredChatAlerts.update(list => list.filter(a => a.id !== id));
+}
+
+// Chat word alerts stay active indefinitely (unlike price alerts, which fire once and
+// clear) — the same phrase should keep matching every time it reappears in chat.
+export function checkChatAlerts(newMessages: ChatAlertCandidate[]): void {
+  const rules = get(chatAlerts);
+  if (rules.length === 0 || newMessages.length === 0) return;
+  const fired: TriggeredChatAlert[] = [];
+  for (const msg of newMessages) {
+    const haystack = msg.text.toLowerCase();
+    for (const rule of rules) {
+      if (!haystack.includes(rule.phrase.toLowerCase())) continue;
+      fired.push({
+        id: `tc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        ruleId: rule.id,
+        phrase: rule.phrase,
+        channel: msg.channel,
+        sender: msg.sender,
+        text: msg.text,
+        timestamp: msg.timestamp,
+        triggeredAt: new Date().toISOString(),
+      });
+    }
+  }
+  if (fired.length > 0) {
+    triggeredChatAlerts.update(list => [...list, ...fired].slice(-_CHAT_TRIGGERED_MAX));
+    playAlertSound();
+  }
+}
+
+// ── Chat feed ─────────────────────────────────────────────────────────────────
+// Lives at store level (not inside the Chat tool component) so polling and alert
+// checking keep running in the background even if the user never opens the tool.
+export interface ChatChannelDef { id: string; label: string; param: string; }
+
+export const CHAT_CHANNELS: ChatChannelDef[] = [
+  { id: 'General',   label: 'General',    param: 'generalDisabled' },
+  { id: 'Trade',     label: 'Trade',      param: 'tradeDisabled' },
+  { id: 'Help',      label: 'Help',       param: 'helpDisabled' },
+  { id: 'ClanHub',   label: 'Clan Hub',   param: 'clanHubDisabled' },
+  { id: 'CombatLFG', label: 'Combat LFG', param: 'combatLFGDisabled' },
+  { id: 'RaidLFG',   label: 'Raid LFG',   param: 'raidLFGDisabled' },
+];
+export const CHAT_CHANNEL_LABEL: Record<string, string> = Object.fromEntries(CHAT_CHANNELS.map(c => [c.id, c.label]));
+
+export interface ChatMessage {
+  channel: string;
+  sender: string;
+  clanTag: string | null;
+  text: string;
+  timestamp: string;
+  isModerator: boolean;
+  gilded: boolean;
+  premium: boolean;
+}
+
+export const CHAT_POLL_MS = 15_000;
+const CHAT_HISTORY_HOURS = 4;
+const CHAT_SAFETY_MAX_MESSAGES = 3000;
+const _CHAT_CHANNELS_KEY = 'icc-chat-channels';
+const _CHAT_MESSAGES_KEY = 'icc-chat-messages';
+
+export const chatEnabledChannels = writable<Set<string>>((() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_CHAT_CHANNELS_KEY) ?? 'null');
+    if (Array.isArray(saved) && saved.length > 0) return new Set(saved);
+  } catch {}
+  return new Set(CHAT_CHANNELS.map(c => c.id));
+})());
+chatEnabledChannels.subscribe(v => { try { localStorage.setItem(_CHAT_CHANNELS_KEY, JSON.stringify([...v])); } catch {} });
+
+export function toggleChatChannel(id: string): void {
+  chatEnabledChannels.update(set => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+}
+
+function isChatMessageFresh(m: ChatMessage): boolean {
+  return Date.now() - new Date(m.timestamp).getTime() < CHAT_HISTORY_HOURS * 3_600_000;
+}
+
+const _chatSeenKeys = new Set<string>();
+
+function loadStoredChatMessages(): ChatMessage[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(_CHAT_MESSAGES_KEY) ?? '[]') as ChatMessage[];
+    const fresh = raw.filter(isChatMessageFresh);
+    for (const m of fresh) _chatSeenKeys.add(`${m.channel}|${m.sender}|${m.timestamp}`);
+    return fresh;
+  } catch { return []; }
+}
+
+export const chatMessages = writable<ChatMessage[]>(loadStoredChatMessages());
+export const chatLoading = writable<boolean>(get(chatMessages).length === 0);
+export const chatRefreshing = writable<boolean>(false);
+export const chatError = writable<boolean>(false);
+
+// Raw Message field looks like "[HH:MM:SS] [ClanTag] Sender: text" (clan tag optional).
+// Sender/timestamp are already separate fields, so strip the redundant prefix for display.
+function parseChatMessage(raw: string, sender: string): { clanTag: string | null; text: string } {
+  let s = raw.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '');
+  let clanTag: string | null = null;
+  const tagMatch = s.match(/^\[([^\]]+)\]\s*/);
+  if (tagMatch) { clanTag = tagMatch[1]; s = s.slice(tagMatch[0].length); }
+  const esc = sender.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  s = s.replace(new RegExp(`^${esc}:\\s*`), '');
+  return { clanTag, text: s };
+}
+
+let _chatFetchInFlight = false;
+
+export async function refreshChat(): Promise<void> {
+  if (_chatFetchInFlight) return;
+  _chatFetchInFlight = true;
+  chatRefreshing.set(true);
+  chatError.set(false);
+  try {
+    const enabled = get(chatEnabledChannels);
+    const params = new URLSearchParams();
+    for (const ch of CHAT_CHANNELS) {
+      if (!enabled.has(ch.id)) params.set(ch.param, 'true');
+    }
+    const res = await fetch(`https://query.idleclans.com/api/Chat/recent?${params.toString()}`);
+    if (!res.ok) throw new Error();
+    const data: Record<string, any[]> = await res.json();
+    const incoming: ChatMessage[] = [];
+    for (const ch of CHAT_CHANNELS) {
+      if (!enabled.has(ch.id)) continue;
+      for (const m of data[ch.id] ?? []) {
+        const key = `${ch.id}|${m.Sender}|${m.Timestamp}`;
+        if (_chatSeenKeys.has(key)) continue;
+        _chatSeenKeys.add(key);
+        const parsed = parseChatMessage(m.Message ?? '', m.Sender ?? '');
+        incoming.push({
+          channel: ch.id,
+          sender: m.Sender ?? '',
+          clanTag: parsed.clanTag,
+          text: parsed.text,
+          timestamp: m.Timestamp,
+          isModerator: !!m.IsModerator,
+          gilded: !!m.Gilded,
+          premium: !!m.Premium,
+        });
+      }
+    }
+    checkChatAlerts(incoming);
+    const current = get(chatMessages);
+    const merged = [...incoming, ...current].filter(isChatMessageFresh);
+    if (incoming.length > 0 || merged.length !== current.length) {
+      const next = merged
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, CHAT_SAFETY_MAX_MESSAGES);
+      chatMessages.set(next);
+      try { localStorage.setItem(_CHAT_MESSAGES_KEY, JSON.stringify(next)); } catch {}
+    }
+  } catch {
+    if (get(chatMessages).length === 0) chatError.set(true);
+  } finally {
+    chatLoading.set(false);
+    chatRefreshing.set(false);
+    _chatFetchInFlight = false;
+  }
+}
+
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   let r: Response;
   try {
@@ -335,6 +552,78 @@ export async function fetchClanProfile(clanName: string): Promise<ClanProfile | 
   }
 }
 
+// ── Changelog ─────────────────────────────────────────────────────────────────
+const GITHUB_REPO = 'Lucidkniight/IdleClansCompanion';
+
+export async function fetchReleaseChangelog(version: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/tags/v${version}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.body === 'string' && data.body.trim() ? data.body : null;
+  } catch {
+    return null;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function inlineMarkdown(s: string): string {
+  return escapeHtml(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+// Lightweight renderer for GitHub release notes: bold-only lines become headings,
+// '- ' lines become list items (indentation depth preserved for nesting, soft-wrapped
+// continuation lines are folded into the preceding item), rest are paragraphs.
+export function renderChangelogMarkdown(markdown: string): string {
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  let html = '';
+  let inList = false;
+  let currentLi: { level: number; parts: string[] } | null = null;
+
+  const flushLi = () => {
+    if (!currentLi) return;
+    const style = currentLi.level > 0 ? ` style="margin-left:${currentLi.level * 10}px" class="changelog-li-nested"` : '';
+    html += `<li${style}>${currentLi.parts.join(' ')}</li>`;
+    currentLi = null;
+  };
+  const closeList = () => {
+    flushLi();
+    if (inList) { html += '</ul>'; inList = false; }
+  };
+
+  for (const line of lines) {
+    if (line.trim() === '') { closeList(); continue; }
+
+    const bulletMatch = line.match(/^(\s*)[-*]\s+(.*)$/);
+    if (bulletMatch) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      flushLi();
+      const level = Math.min(3, Math.floor(bulletMatch[1].length / 2));
+      currentLi = { level, parts: [inlineMarkdown(bulletMatch[2])] };
+      continue;
+    }
+
+    if (inList && currentLi) {
+      // Soft-wrapped continuation of the current bullet
+      currentLi.parts.push(inlineMarkdown(line.trim()));
+      continue;
+    }
+
+    closeList();
+    const headingMatch = line.match(/^\*\*(.+)\*\*$/);
+    if (headingMatch) {
+      html += `<div class="changelog-heading">${escapeHtml(headingMatch[1])}</div>`;
+    } else {
+      html += `<p>${inlineMarkdown(line)}</p>`;
+    }
+  }
+  closeList();
+  return html;
+}
+
 async function refreshProfiles() {
   const current = get(clients);
   for (let i = 0; i < current.length; i++) {
@@ -403,7 +692,7 @@ export async function refreshPreviews() {
   }
 }
 
-function _playAlertSound(): void {
+export function playAlertSound(): void {
   try {
     const vol = parseInt(localStorage.getItem('s-alert-volume') ?? '50') / 100;
     const snd = localStorage.getItem('s-alert-sound') ?? 'mixkit-software-interface-start-2574.wav';
@@ -432,7 +721,7 @@ function _checkPriceAlerts(cache: Record<number, PriceData>): void {
     if (!hit) continue;
     const fieldLabel = alert.field === 'sell' ? 'Sell' : 'Buy';
     const dirLabel = alert.direction === 'below' ? 'dropped below' : 'risen above';
-    _playAlertSound();
+    playAlertSound();
     triggeredAlerts.update(list => [...list, {
       id: `t-${Date.now()}-${alert.id}`,
       itemId: alert.itemId,

@@ -134,6 +134,10 @@ $: stages = STAGES.map(({ level, label }) => {
 $: activeIdx = username ? stages.findIndex(s => !s.complete) : -1;
 $: allDone = username !== '' && activeIdx === -1;
 
+// Manually selected tier to view (overrides the auto-selected "next" tier). Reset on lookup/clear.
+let manualIdx: number | null = null;
+$: viewIdx = manualIdx ?? activeIdx;
+
 async function lookup() {
   const name = nameInput.trim();
   if (!name) return;
@@ -142,6 +146,7 @@ async function lookup() {
   notFound = false;
   skillXpMap = {};
   username = '';
+  manualIdx = null;
   try {
     const res = await fetch(
       `https://query.idleclans.com/api/Player/profile/${encodeURIComponent(name)}`
@@ -171,6 +176,7 @@ function clear() {
   notFound = false;
   hasError = false;
   nameAutoFilled = false;
+  manualIdx = null;
 }
 
 function cap(s: string): string {
@@ -205,8 +211,8 @@ function hideTip() { _tipVisible = false; }
 
 $: stageEta = (() => {
   const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost];
-  if (!username || activeIdx === -1 || $profitTasks.length === 0) return null;
-  const stage = stages[activeIdx];
+  if (!username || viewIdx === -1 || $profitTasks.length === 0) return null;
+  const stage = stages[viewIdx];
   let total = 0;
   let partial = false;
   const skillTimes: Record<string, number | null> = {};
@@ -345,19 +351,28 @@ $: stageEta = (() => {
 
   <div class="stages">
     {#each stages as stage, i}
-      <div class="stage-card" class:active={i === activeIdx} class:complete={stage.complete}>
-        <div class="stage-header">
+      <div class="stage-card" class:active={i === viewIdx} class:complete={stage.complete}>
+        <div
+          class="stage-header"
+          role="button"
+          tabindex="0"
+          on:click={() => manualIdx = i}
+          on:keydown={(e) => e.key === 'Enter' && (manualIdx = i)}
+        >
           <span class="stage-label">{stage.label}</span>
           {#if stage.complete}
             <span class="badge complete-badge">✓ Complete</span>
           {:else}
-            <span class="badge remaining-badge" class:active-badge={i === activeIdx}>
+            <span class="badge remaining-badge" class:active-badge={i === viewIdx}>
               {stage.needing.length} / 20 · {formatGold(stage.totalXp)}
             </span>
           {/if}
         </div>
 
-        {#if !stage.complete && i === activeIdx}
+        {#if i === viewIdx}
+          {#if stage.complete}
+            <p class="complete-note">All skills already at this tier.</p>
+          {:else}
           <div class="skill-list">
             {#each stage.needing as s}
               <button class="skill-row" on:click={() => navigate('XP/GP Calculator', `${cap(s.skill)},${s.currentXp},${stage.level}`)}>
@@ -382,6 +397,7 @@ $: stageEta = (() => {
               {/if}
             {/if}
           </div>
+          {/if}
         {/if}
       </div>
     {/each}
@@ -487,9 +503,15 @@ $: stageEta = (() => {
 
   .stage-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 7px 10px; gap: 6px;
+    padding: 7px 10px; gap: 6px; cursor: pointer; transition: background 0.1s;
   }
+  .stage-header:hover { background: var(--bg-hover); }
   .stage-label { font-size: 12px; font-weight: 700; color: var(--text-hi); }
+
+  .complete-note {
+    border-top: 1px solid var(--border); padding: 8px 10px;
+    margin: 0; font-size: 11px; color: var(--text-dim);
+  }
 
   .badge {
     font-size: 9px; font-weight: 700; border-radius: 4px; padding: 2px 6px;

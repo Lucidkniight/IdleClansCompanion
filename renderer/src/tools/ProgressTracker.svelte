@@ -12,8 +12,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
-    trackedPlayers, snapshots, fetchingSet,
-    addTrackedPlayer, removeTrackedPlayer, forceRefresh,
+    trackedPlayers, snapshotSummaries, fetchingSet,
+    addTrackedPlayer, removeTrackedPlayer, forceRefresh, loadSnapshotsInRange,
     type PlayerSnapshot,
   } from '../lib/trackerStore';
   import { formatGold, xpToLevel, clients } from '../lib/store';
@@ -35,6 +35,11 @@
   let removeConfirmUsername: string | null = null;
   let timeRange = 'all';
   let now = Date.now();
+
+  // Detail view snapshot data — loaded on demand from IndexedDB per player/range
+  let detailSnaps: PlayerSnapshot[] = [];
+  let detailLoading = false;
+  let detailReqId = 0;
 
   const SNAP_INTERVAL = 55 * 60 * 1000;
 
@@ -125,12 +130,27 @@
     selectedPlayer = username;
     activeMetric = chartMetrics[username.toLowerCase()] ?? 'totalXp';
     hoveredIdx = null;
+    detailSnaps = [];
   }
 
   function closeDetail() {
     selectedPlayer = null;
     hoveredIdx = null;
   }
+
+  async function loadDetail(username: string, range: string) {
+    const reqId = ++detailReqId;
+    detailLoading = true;
+    const rangeMs = TIME_RANGES.find(t => t.value === range)?.ms ?? 0;
+    const since = rangeMs > 0 ? Date.now() - rangeMs : null;
+    const result = await loadSnapshotsInRange(username, since);
+    if (reqId === detailReqId) {
+      detailSnaps = result;
+      detailLoading = false;
+    }
+  }
+
+  $: if (selectedPlayer !== null) loadDetail(selectedPlayer, timeRange);
 
   // ── Add player ────────────────────────────────────────────────────────────
   async function handleAdd() {
@@ -369,9 +389,9 @@
     <div class="player-list">
       {#each $trackedPlayers as player (player.username)}
         {@const key       = player.username.toLowerCase()}
-        {@const snaps     = $snapshots[key] ?? []}
-        {@const last      = snaps.length > 0 ? snaps[snaps.length - 1] : null}
-        {@const first     = snaps.length > 0 ? snaps[0] : null}
+        {@const summary   = $snapshotSummaries[key] ?? null}
+        {@const last      = summary?.last ?? null}
+        {@const first     = summary?.first ?? null}
         {@const busy      = $fetchingSet.has(key)}
         {@const lastTs    = last?.timestamp ?? 0}
         {@const elapsed   = now - lastTs}
@@ -419,11 +439,11 @@
               <span class="stat-lbl">Total XP</span>
             </div>
             <div class="card-stat">
-              <span class="stat-val">{first && last && snaps.length >= 2 ? timeSpan(last.timestamp - first.timestamp) : '—'}</span>
+              <span class="stat-val">{first && last && (summary?.count ?? 0) >= 2 ? timeSpan(last.timestamp - first.timestamp) : '—'}</span>
               <span class="stat-lbl">Tracked</span>
             </div>
             <div class="card-stat">
-              <span class="stat-val">{snaps.length || '—'}</span>
+              <span class="stat-val">{summary?.count || '—'}</span>
               <span class="stat-lbl">Snapshots</span>
             </div>
           </div>
@@ -445,10 +465,10 @@
        DETAIL VIEW
   ═══════════════════════════════════════════════════════════ -->
   {@const key      = selectedPlayer.toLowerCase()}
-  {@const allSnaps = $snapshots[key] ?? []}
+  {@const summary  = $snapshotSummaries[key] ?? null}
   {@const rangeMs  = TIME_RANGES.find(t => t.value === timeRange)?.ms ?? 0}
-  {@const visSnaps = rangeMs === 0 ? allSnaps : allSnaps.filter(s => s.timestamp >= Date.now() - rangeMs)}
-  {@const last     = allSnaps.length > 0 ? allSnaps[allSnaps.length - 1] : null}
+  {@const visSnaps = detailSnaps}
+  {@const last     = summary?.last ?? null}
   {@const first    = visSnaps.length > 0 ? visSnaps[0] : null}
   {@const busy     = $fetchingSet.has(key)}
   {@const chart    = detailChartW > 0 ? buildChart(visSnaps, activeMetric, detailChartW, hoveredIdx, rangeMs) : null}
@@ -503,7 +523,7 @@
   {#if last}
     <div class="detail-meta">
       {#if last.task}<span class="meta-task">{last.task.replace(/_/g, ' ')}</span>{/if}
-      <span class="meta-since">{timeAgo(last.timestamp)} · {allSnaps.length} snapshot{allSnaps.length !== 1 ? 's' : ''}</span>
+      <span class="meta-since">{timeAgo(last.timestamp)} · {summary?.count ?? 0} snapshot{(summary?.count ?? 0) !== 1 ? 's' : ''}</span>
     </div>
   {/if}
 
@@ -593,9 +613,11 @@
           <text class="x-label" x={tick.px} y={PAD_T + CHART_H + 16} text-anchor="middle">{tick.label}</text>
         {/each}
       </svg>
+    {:else if detailLoading}
+      <div class="chart-empty">Loading…</div>
     {:else}
       <div class="chart-empty">
-        {allSnaps.length < 2 ? 'Chart appears after the next hourly snapshot.' : visSnaps.length < 2 ? 'No snapshots in this time range.' : 'No data for this metric.'}
+        {(summary?.count ?? 0) < 2 ? 'Chart appears after the next hourly snapshot.' : visSnaps.length < 2 ? 'No snapshots in this time range.' : 'No data for this metric.'}
       </div>
     {/if}
   </div>
@@ -629,7 +651,7 @@
         </button>
       {/each}
     </div>
-  {:else if allSnaps.length >= 2}
+  {:else if (summary?.count ?? 0) >= 2}
     <div class="no-gains">{visSnaps.length < 2 ? 'No snapshots in this time range.' : 'No skill gains recorded yet.'}</div>
   {/if}
 

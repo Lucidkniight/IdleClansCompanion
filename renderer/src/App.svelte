@@ -17,6 +17,7 @@ import {
   fetchReleaseChangelog, renderChangelogMarkdown,
 } from './lib/store';
 import { initAnalytics, setOptOut, track } from './lib/analytics';
+import { deleteAllSnapshotData } from './lib/trackerStore';
 import CustomSelect from './lib/CustomSelect.svelte';
 
 // ── Tool discovery ────────────────────────────────────────────────────────────
@@ -158,23 +159,26 @@ async function submitFeedback() {
   track('feedback_submitted', { type: feedbackType });
 }
 
-const WIPE_CATS = [
+interface WipeCategory {
+  id: string; label: string; desc: string; keys: string[];
+  extra?: () => Promise<void>;
+}
+
+const WIPE_CATS: WipeCategory[] = [
   { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out','s-last-seen-version'] },
   { id: 'alerts',    label: 'Alerts',           desc: 'Price and chat word alert rules and triggered notification history', keys: ['icc-price-alerts','icc-triggered-alerts','icc-chat-alerts','icc-chat-triggered'] },
-  { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], prefix: 'icc-tracker-snap-' },
+  { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], extra: deleteAllSnapshotData },
   { id: 'combat',    label: 'Combat Loadouts',  desc: 'Saved gear loadouts from the Combat Calculator library',        keys: ['icc-combat-saves'] },
   { id: 'notepad',   label: 'Notepad',          desc: 'All saved notes',                                               keys: ['notepad'] },
   { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-calc-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent','icc-chat-channels','icc-chat-messages'] },
 ];
 let wipeSelected: Set<string> = new Set(WIPE_CATS.map(c => c.id));
 
-function wipeSelectedData() {
+async function wipeSelectedData() {
   for (const cat of WIPE_CATS) {
     if (!wipeSelected.has(cat.id)) continue;
     cat.keys.forEach(k => localStorage.removeItem(k));
-    if (cat.prefix) {
-      Object.keys(localStorage).filter(k => k.startsWith(cat.prefix!)).forEach(k => localStorage.removeItem(k));
-    }
+    if (cat.extra) await cat.extra();
   }
   showWipeModal = false;
   location.reload();

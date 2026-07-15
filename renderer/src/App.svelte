@@ -13,7 +13,8 @@ import {
   scan, focusClient, refreshPreviews, loadGameConfig, refreshPrices,
   toolNavigation, navigate, triggeredAlerts, dismissTriggeredAlert,
   triggeredChatAlerts, dismissTriggeredChatAlert, refreshChat, CHAT_POLL_MS,
-  formatItemName, formatGold, devMode,
+  triggeredNewsAlerts, dismissTriggeredNewsAlert, refreshNews, NEWS_POLL_MS,
+  formatItemName, formatGold, devMode, isDemoMode,
   fetchReleaseChangelog, renderChangelogMarkdown,
 } from './lib/store';
 import { initAnalytics, setOptOut, track } from './lib/analytics';
@@ -134,6 +135,7 @@ async function openChangelog(version: string) {
 }
 
 function checkForChangelog() {
+  if (isDemoMode) return; // not relevant to a browser demo session
   const lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY);
   if (lastSeen !== __APP_VERSION__) {
     // Only auto-show for installs that already existed before this update — a fresh
@@ -166,11 +168,11 @@ interface WipeCategory {
 
 const WIPE_CATS: WipeCategory[] = [
   { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out','s-last-seen-version'] },
-  { id: 'alerts',    label: 'Alerts',           desc: 'Price and chat word alert rules and triggered notification history', keys: ['icc-price-alerts','icc-triggered-alerts','icc-chat-alerts','icc-chat-triggered'] },
+  { id: 'alerts',    label: 'Alerts',           desc: 'Price, chat word, and news alert rules and triggered notification history', keys: ['icc-price-alerts','icc-triggered-alerts','icc-chat-alerts','icc-chat-triggered','icc-news-triggered'] },
   { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], extra: deleteAllSnapshotData },
   { id: 'combat',    label: 'Combat Loadouts',  desc: 'Saved gear loadouts from the Combat Calculator library',        keys: ['icc-combat-saves'] },
   { id: 'notepad',   label: 'Notepad',          desc: 'All saved notes',                                               keys: ['notepad'] },
-  { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-calc-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent','icc-chat-channels','icc-chat-messages'] },
+  { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-calc-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent','icc-chat-channels','icc-chat-messages','icc-news-notify','icc-news-last-seen'] },
 ];
 let wipeSelected: Set<string> = new Set(WIPE_CATS.map(c => c.id));
 
@@ -270,6 +272,11 @@ function openAlertItem(alert: TriggeredAlert) {
 function openChatAlertItem() {
   showAlerts = false;
   navigate('Chat', '');
+}
+
+function openNewsAlertItem() {
+  showAlerts = false;
+  navigate('News', '');
 }
 
 // ── Game launcher ─────────────────────────────────────────────────────────────
@@ -398,6 +405,7 @@ let refreshInterval: ReturnType<typeof setInterval>;
 let previewInterval: ReturnType<typeof setInterval>;
 let priceInterval: ReturnType<typeof setInterval>;
 let chatInterval: ReturnType<typeof setInterval>;
+let newsInterval: ReturnType<typeof setInterval>;
 
 // ── Client tab ────────────────────────────────────────────────────────────────
 function getOnlineStatus(profile: PlayerProfile): { online: boolean } {
@@ -460,10 +468,13 @@ onMount(async () => {
     });
   }, 60_000);
   _analyticsReady = true;
-  refreshInterval = setInterval(scan, 10000);
+  // Demo accounts are static — no need to keep re-polling the public API for them.
+  if (!isDemoMode) refreshInterval = setInterval(scan, 10000);
   priceInterval  = setInterval(refreshPrices, 60 * 1000);
   refreshChat();
   chatInterval = setInterval(refreshChat, CHAT_POLL_MS);
+  refreshNews();
+  newsInterval = setInterval(refreshNews, NEWS_POLL_MS);
   (window as any).electronAPI.onUpdateReady(() => {
     updateReady.set(true);
   });
@@ -474,6 +485,7 @@ onDestroy(() => {
   clearInterval(previewInterval);
   clearInterval(priceInterval);
   clearInterval(chatInterval);
+  clearInterval(newsInterval);
 });
 </script>
 
@@ -493,7 +505,7 @@ onDestroy(() => {
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
           </svg>
-          {#if $triggeredAlerts.length > 0 || $triggeredChatAlerts.length > 0}
+          {#if $triggeredAlerts.length > 0 || $triggeredChatAlerts.length > 0 || $triggeredNewsAlerts.length > 0}
             <span class="alert-dot"></span>
           {/if}
         </span>
@@ -655,30 +667,37 @@ onDestroy(() => {
 
       <div class="settings-group">
         <div class="settings-group-label">Game Client</div>
-        <div class="settings-row">
-          <span class="settings-label">Executable</span>
-          {#if settingGameExe}
-            <div class="exe-selected">
-              <span class="exe-path" title={settingGameExe}>{settingGameExe.split(/[\\/]/).pop()}</span>
-              <button class="exe-clear-btn" on:click={() => settingGameExe = ''} title="Clear">✕</button>
+        {#if isDemoMode}
+          <div class="settings-row">
+            <span class="settings-label">Launching real clients</span>
+            <a class="feedback-btn" href="https://github.com/Lucidkniight/IdleClansCompanion/releases/latest" target="_blank" rel="noopener">Download the app</a>
+          </div>
+        {:else}
+          <div class="settings-row">
+            <span class="settings-label">Executable</span>
+            {#if settingGameExe}
+              <div class="exe-selected">
+                <span class="exe-path" title={settingGameExe}>{settingGameExe.split(/[\\/]/).pop()}</span>
+                <button class="exe-clear-btn" on:click={() => settingGameExe = ''} title="Clear">✕</button>
+              </div>
+            {:else}
+              <button class="feedback-btn" on:click={browseExe}>Browse…</button>
+            {/if}
+          </div>
+          {#if exeError}
+            <div class="settings-row exe-error-row">
+              <span class="exe-error">{exeError}</span>
             </div>
-          {:else}
-            <button class="feedback-btn" on:click={browseExe}>Browse…</button>
           {/if}
-        </div>
-        {#if exeError}
-          <div class="settings-row exe-error-row">
-            <span class="exe-error">{exeError}</span>
+          <div class="settings-row">
+            <span class="settings-label">Launch count</span>
+            <div class="count-stepper">
+              <button class="stepper-btn" on:click={() => settingLaunchCount = Math.max(1, settingLaunchCount - 1)}>−</button>
+              <span class="stepper-val">{settingLaunchCount}</span>
+              <button class="stepper-btn" on:click={() => settingLaunchCount = Math.min(8, settingLaunchCount + 1)}>+</button>
+            </div>
           </div>
         {/if}
-        <div class="settings-row">
-          <span class="settings-label">Launch count</span>
-          <div class="count-stepper">
-            <button class="stepper-btn" on:click={() => settingLaunchCount = Math.max(1, settingLaunchCount - 1)}>−</button>
-            <span class="stepper-val">{settingLaunchCount}</span>
-            <button class="stepper-btn" on:click={() => settingLaunchCount = Math.min(8, settingLaunchCount + 1)}>+</button>
-          </div>
-        </div>
       </div>
 
       <div class="settings-group">
@@ -725,7 +744,7 @@ onDestroy(() => {
     {#if showAlerts}
     <div class="alerts-content">
       <div class="section-header"><span>Alerts</span></div>
-      {#if $triggeredAlerts.length === 0 && $triggeredChatAlerts.length === 0}
+      {#if $triggeredAlerts.length === 0 && $triggeredChatAlerts.length === 0 && $triggeredNewsAlerts.length === 0}
         <div class="alerts-empty">
           <div class="alerts-empty-icon">🔔</div>
           <p>No notifications</p>
@@ -758,6 +777,19 @@ onDestroy(() => {
               <button class="alert-panel-remove" on:click={() => dismissTriggeredChatAlert(alert.id)}>✕</button>
             </div>
           {/each}
+          {#each $triggeredNewsAlerts as alert (alert.id)}
+            <div class="alert-panel-row">
+              <button class="alert-panel-main" on:click={openNewsAlertItem}>
+                <span class="alert-panel-icon alert-panel-icon-emoji">📰</span>
+                <div class="alert-panel-info">
+                  <span class="alert-panel-name">{alert.title}</span>
+                  <span class="alert-panel-cond">{new Date(alert.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                </div>
+                <span class="alert-panel-tag">News</span>
+              </button>
+              <button class="alert-panel-remove" on:click={() => dismissTriggeredNewsAlert(alert.id)}>✕</button>
+            </div>
+          {/each}
         </div>
       {/if}
     </div>
@@ -768,13 +800,15 @@ onDestroy(() => {
       <div class="section-header">
         <span>Accounts</span>
         <div class="header-action-btns">
-          <button
-            class="scan-btn"
-            on:click={launchClients}
-            title={settingGameExe ? `Launch ${settingLaunchCount} client${settingLaunchCount !== 1 ? 's' : ''}` : 'Launch game client'}
-          >
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </button>
+          {#if !isDemoMode}
+            <button
+              class="scan-btn"
+              on:click={launchClients}
+              title={settingGameExe ? `Launch ${settingLaunchCount} client${settingLaunchCount !== 1 ? 's' : ''}` : 'Launch game client'}
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </button>
+          {/if}
           <button class="scan-btn" on:click={scan} title="Rescan">↺</button>
         </div>
       </div>
@@ -1786,6 +1820,7 @@ onDestroy(() => {
   .alert-panel-main:hover .alert-panel-name { color: var(--accent); }
 
   .alert-panel-icon { width: 28px; height: 28px; object-fit: contain; flex-shrink: 0; }
+  .alert-panel-icon-emoji { display: flex; align-items: center; justify-content: center; font-size: 16px; }
 
   .alert-panel-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .alert-panel-name { font-size: 12px; font-weight: 700; color: var(--text-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.1s; }

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Try Idle Clans Companion in Your Browser</title>
+    <meta name="description" content="Use the real Idle Clans Companion app right in your browser — XP/profit calculators, live market prices, combat calculator, and more. No download required." />
+    <script>
+      // Must run before any module code (including store.ts) evaluates —
+      // ES module imports are hoisted, so this can't be set from try-main.ts itself.
+      window.__ICC_DEMO__ = true;
+    </script>
+  </head>
+
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/try-main.ts"></script>
+  </body>
+</html>

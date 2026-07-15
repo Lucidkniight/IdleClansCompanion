@@ -113,6 +113,22 @@ export interface TriggeredChatAlert {
   triggeredAt: string;
 }
 
+export interface NewsItem {
+  title: string;
+  body: string;
+  imageUrl: string | null;
+  linkUrl: string;
+  publishedAt: string;
+}
+
+export interface TriggeredNewsAlert {
+  id: string;
+  title: string;
+  linkUrl: string;
+  publishedAt: string;
+  triggeredAt: string;
+}
+
 export interface EquipmentItem {
   id: number;
   name: string;
@@ -219,6 +235,13 @@ export function formatTime(seconds: number): string {
 }
 
 export { GATHERING_SKILLS };
+
+// True only on the browser-hosted "Try it out" demo page (see try-main.ts / demoPlatform.ts).
+// The packaged Electron app never sets window.__ICC_DEMO__.
+export const isDemoMode = typeof window !== 'undefined' && (window as any).__ICC_DEMO__ === true;
+
+// Hardcoded display order for the demo page's 3 mock accounts (not alphabetical).
+export const DEMO_ACCOUNTS = ['LucidKniight', 'LucidTwo', 'LucidThree'] as const;
 
 // ── Writable stores ───────────────────────────────────────────────────────────
 export const devMode = writable<boolean>(localStorage.getItem('s-dev-mode') === 'true');
@@ -464,6 +487,80 @@ export async function refreshChat(): Promise<void> {
   }
 }
 
+// ── News feed ─────────────────────────────────────────────────────────────────
+// Lives at store level (not inside the News tool component) so new-post detection
+// keeps running in the background every NEWS_POLL_MS even if the user never opens
+// the tool, same pattern as the chat feed above.
+export const NEWS_POLL_MS = 5 * 60_000;
+const _NEWS_NOTIFY_KEY = 'icc-news-notify';
+const _NEWS_LAST_SEEN_KEY = 'icc-news-last-seen';
+const _NEWS_TRIGGERED_KEY = 'icc-news-triggered';
+const _NEWS_TRIGGERED_MAX = 50;
+
+export const newsNotifyEnabled = writable<boolean>(localStorage.getItem(_NEWS_NOTIFY_KEY) !== 'false');
+newsNotifyEnabled.subscribe(v => { try { localStorage.setItem(_NEWS_NOTIFY_KEY, String(v)); } catch {} });
+
+export const triggeredNewsAlerts = writable<TriggeredNewsAlert[]>((() => {
+  try { return JSON.parse(localStorage.getItem(_NEWS_TRIGGERED_KEY) ?? '[]'); } catch { return []; }
+})());
+triggeredNewsAlerts.subscribe(v => { try { localStorage.setItem(_NEWS_TRIGGERED_KEY, JSON.stringify(v)); } catch {} });
+
+export function dismissTriggeredNewsAlert(id: string): void {
+  triggeredNewsAlerts.update(list => list.filter(a => a.id !== id));
+}
+
+export const newsItems = writable<NewsItem[]>([]);
+export const newsLoading = writable<boolean>(true);
+export const newsError = writable<boolean>(false);
+
+// The API returns posts newest-first with no unique id, so `publishedAt` of the
+// newest post is used as the watermark for "have I already notified about this?".
+// On the very first run there's no watermark yet — seed it without notifying so
+// installing the app doesn't fire alerts for 25 pre-existing posts.
+function checkNewsAlerts(items: NewsItem[]): void {
+  if (items.length === 0) return;
+  const newest = items[0].publishedAt;
+  const lastSeen = localStorage.getItem(_NEWS_LAST_SEEN_KEY);
+  if (lastSeen === null) {
+    try { localStorage.setItem(_NEWS_LAST_SEEN_KEY, newest); } catch {}
+    return;
+  }
+  const lastSeenMs = new Date(lastSeen).getTime();
+  const fresh = items.filter(i => new Date(i.publishedAt).getTime() > lastSeenMs);
+  if (fresh.length === 0) return;
+  try { localStorage.setItem(_NEWS_LAST_SEEN_KEY, newest); } catch {}
+  if (!get(newsNotifyEnabled)) return;
+  const triggered: TriggeredNewsAlert[] = fresh.map(i => ({
+    id: `tn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: i.title,
+    linkUrl: i.linkUrl,
+    publishedAt: i.publishedAt,
+    triggeredAt: new Date().toISOString(),
+  }));
+  triggeredNewsAlerts.update(list => [...list, ...triggered].slice(-_NEWS_TRIGGERED_MAX));
+  playAlertSound();
+}
+
+let _newsFetchInFlight = false;
+
+export async function refreshNews(): Promise<void> {
+  if (_newsFetchInFlight) return;
+  _newsFetchInFlight = true;
+  newsError.set(false);
+  try {
+    const res = await fetch('https://query.idleclans.com/api/news/latest?count=25');
+    if (!res.ok) throw new Error();
+    const items: NewsItem[] = await res.json();
+    newsItems.set(items);
+    checkNewsAlerts(items);
+  } catch {
+    if (get(newsItems).length === 0) newsError.set(true);
+  } finally {
+    newsLoading.set(false);
+    _newsFetchInFlight = false;
+  }
+}
+
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   let r: Response;
   try {
@@ -628,7 +725,11 @@ async function refreshProfiles() {
   const current = get(clients);
   for (let i = 0; i < current.length; i++) {
     const client = current[i];
-    if (!client.playerName) continue;
+    // Skip clients we already have a profile for — logging out is already caught for
+    // free by the window-title check in scan(), so there's no need to re-hit the API
+    // every 10s just to keep guildName/gameMode/activeServerId fresh. A null profile
+    // (never fetched, or a prior fetch failed) still retries here.
+    if (!client.playerName || client.profile) continue;
     const profile = await fetchProfile(client.playerName);
     clients.update(list => {
       list[i] = { ...list[i], profile, loading: false, error: profile === null };
@@ -657,6 +758,10 @@ export async function scan() {
         };
       })
       .sort((a, b) => {
+        if (isDemoMode) {
+          const order: readonly string[] = DEMO_ACCOUNTS;
+          return order.indexOf(a.playerName ?? '') - order.indexOf(b.playerName ?? '');
+        }
         if (!a.playerName && b.playerName) return 1;
         if (a.playerName && !b.playerName) return -1;
         return (a.playerName ?? '').localeCompare(b.playerName ?? '');

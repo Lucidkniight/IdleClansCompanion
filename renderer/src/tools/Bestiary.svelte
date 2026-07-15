@@ -37,6 +37,8 @@
     isClanBoss: boolean;
     bossType: number;
     loot: LootEntry[];
+    exterminatingLevelRequirement: number;
+    itemIdRequired: number;
   }
 
   // ── Weakness (inlined from lib/weakness.ts) ─────────────────────────────────
@@ -66,6 +68,33 @@
     return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   }
 
+  // Some raw item names (used for icon filenames) don't match their actual
+  // in-game display name — e.g. boss keys are internally named after the boss
+  // they unlock but shown to players under a generic name.
+  const ITEM_DISPLAY_OVERRIDES: Record<string, string> = {
+    zeus_key: 'Godly Key',
+    medusa_key: 'Stone Key',
+    hades_key: 'Underworld Key',
+    griffin_key: 'Mountain Key',
+    devil_key: 'Burning Key',
+    chimera_key: 'Mutated Key',
+    sobek_key: 'Ancient Key',
+    kronos_scroll: "Kronos' Book",
+    otherworldly_key: 'Otherworldly Key',
+    silheniks_broken_crown: "Silhenik's Broken Crown",
+    shard_of_first_light: 'Shard of First Light',
+  };
+
+  function itemDisplayName(rawName: string): string {
+    return ITEM_DISPLAY_OVERRIDES[rawName] ?? formatItemName(rawName);
+  }
+
+  // Compact requirement label for the monster list cards — just the first
+  // word (e.g. "Godly Key" -> "Godly", "Shaman Totem" -> "Shaman").
+  function firstWord(name: string): string {
+    return name.split(' ')[0];
+  }
+
 
   // ── Category color map ───────────────────────────────────────────────────────
   const CATEGORY_COLOR: Record<string, string> = {
@@ -88,8 +117,31 @@
     { label: 'Clan Bosses', value: 'clan'  },
   ];
 
+  interface LootRow {
+    itemId: number;
+    dropRate: number;
+    avgAmount: number;
+  }
+
+  function computeLootRows(loot: LootEntry[]): LootRow[] {
+    const totalWeight = loot.reduce((s, l) => s + (l.weight ?? 0), 0);
+    if (totalWeight <= 0) return [];
+    return loot
+      .map(l => ({
+        itemId: l.itemId,
+        dropRate: l.weight / totalWeight,
+        avgAmount: Math.max(1, (l.amountMin + l.amountMax) / 2),
+      }))
+      .sort((a, b) => b.dropRate - a.dropRate);
+  }
+
+  function itemIconPath(rawName: string): string {
+    return `./itemicons/${rawName}.png`;
+  }
+
   // ── Component state ──────────────────────────────────────────────────────────
   let allMonsters: Monster[] = [];
+  let itemNames: Record<number, string> = {};
   let search      = '';
   let filterMode: FilterMode = 'all';
   let selected: Monster | null = null;
@@ -109,6 +161,8 @@
       true;
     return nameMatch && typeOk;
   }).sort((a, b) => a.health - b.health);
+
+  $: lootRows = selected ? computeLootRows(selected.loot) : [];
 
   // ── Icon helpers ──────────────────────────────────────────────────────────────
   function monsterIconPath(name: string): string {
@@ -139,6 +193,13 @@
 
       if (gen !== _generation) return; // stale — discard
 
+      const names: Record<number, string> = {};
+      if (Array.isArray(data.Items?.Items)) {
+        for (const item of data.Items.Items) {
+          if (item.Name && item.ItemId >= 0) names[item.ItemId] = item.Name;
+        }
+      }
+
       const monsters: Monster[] = [];
 
       // Regular + Invocation combat tasks
@@ -166,6 +227,8 @@
               isBoss:             t.IsBoss                  ?? false,
               isClanBoss:         false,
               bossType:           t.BossType                ?? 0,
+              exterminatingLevelRequirement: t.LevelRequirement ?? 0,
+              itemIdRequired:     t.ItemIdRequired > 0 ? t.ItemIdRequired : 0,
               loot: Array.isArray(t.Loot)
                 ? t.Loot.map((e: any) => ({
                     itemId:    e.ItemId,
@@ -201,6 +264,8 @@
             isBoss:             false,
             isClanBoss:         true,
             bossType:           c.BossType                 ?? 0,
+            exterminatingLevelRequirement: 0,
+            itemIdRequired:     0,
             loot: Array.isArray(c.LootTable)
               ? c.LootTable.map((e: any) => ({
                   itemId:    e.ItemId,
@@ -215,6 +280,7 @@
 
       if (gen === _generation) {
         allMonsters = monsters;
+        itemNames = names;
         loading = false;
       }
     } catch (e) {
@@ -329,6 +395,37 @@
         </div>
       </div>
 
+      {#if selected.exterminatingLevelRequirement > 0 || selected.itemIdRequired > 0}
+        <!-- Section: Requirements -->
+        <div class="section-label">
+          <span class="sl-line"></span>
+          <span class="sl-text">Requirements</span>
+          <span class="sl-line"></span>
+        </div>
+        <div class="req-row">
+          {#if selected.exterminatingLevelRequirement > 0}
+            <span class="req-pill">
+              <img class="req-icon" src="./skilltaskicons/Exterminating.png" alt="Exterminating" on:error={onImgError} />
+              Exterminating Lvl {selected.exterminatingLevelRequirement}
+            </span>
+          {/if}
+          {#if selected.itemIdRequired > 0}
+            {@const rawName = itemNames[selected.itemIdRequired] ?? ''}
+            {@const reqName = rawName ? itemDisplayName(rawName) : `#${selected.itemIdRequired}`}
+            <span class="req-pill req-pill-item">
+              <span class="req-label">Requires:</span>
+              <img
+                class="req-icon"
+                src={itemIconPath(rawName)}
+                alt={reqName}
+                on:error={onImgError}
+              />
+              {reqName}
+            </span>
+          {/if}
+        </div>
+      {/if}
+
       <!-- Section: Combat Stats -->
       <div class="section-label">
         <span class="sl-line"></span>
@@ -338,7 +435,7 @@
       <div class="stat-grid">
         <div class="stat-cell">
           <span class="stat-value">{selected.health}</span>
-          <span class="stat-label">HP</span>
+          <span class="stat-label"><img class="stat-label-icon" src="./skilltaskicons/Health.png" alt="HP" /></span>
         </div>
         <div class="stat-cell">
           <span class="stat-value">{selected.attackLevel}</span>
@@ -408,6 +505,35 @@
         </div>
       </div>
 
+      <!-- Section: Drop Table -->
+      <div class="section-label">
+        <span class="sl-line"></span>
+        <span class="sl-text">Drop Table</span>
+        <span class="sl-line"></span>
+      </div>
+      {#if lootRows.length > 0}
+        <div class="loot-list">
+          {#each lootRows as row (row.itemId)}
+            {@const rawName = itemNames[row.itemId] ?? ''}
+            {@const name = rawName ? itemDisplayName(rawName) : `#${row.itemId}`}
+            <div class="loot-row">
+              <img
+                class="loot-icon"
+                src={itemIconPath(rawName)}
+                alt={name}
+                on:error={onImgError}
+              />
+              <span class="loot-name">
+                {name}{#if row.avgAmount > 1}<span class="loot-amt"> ×{Number.isInteger(row.avgAmount) ? row.avgAmount : row.avgAmount.toFixed(1)}</span>{/if}
+              </span>
+              <span class="loot-rate">1 in {Math.round(1 / row.dropRate).toLocaleString()}</span>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <p class="empty-msg loot-empty">No known drops.</p>
+      {/if}
+
       <p class="caveat">
         * Weakness labels are reverse-engineered from community data and may not match all in-game encounters.
       </p>
@@ -427,20 +553,51 @@
             alt={formatItemName(m.name)}
             on:error={onImgError}
           />
-          <div class="monster-info">
-            <span class="monster-name">{formatItemName(m.name)}</span>
-            {#if m.isBoss}
-              <span class="boss-badge">BOSS</span>
-            {:else if m.isClanBoss}
-              <span class="clan-badge">CLAN</span>
-            {/if}
-          </div>
-          <div class="monster-stats">
-            <span class="hp-stat">HP {m.health}</span>
-            <span
-              class="weak-stat"
-              style="color:{weaknessColor(m.weaknessType)}"
-            >{weaknessLabel(m.weaknessType)}</span>
+          <div class="monster-main">
+            <div class="monster-line1">
+              <span class="monster-name">{formatItemName(m.name)}</span>
+              {#if m.isBoss}
+                <span class="boss-badge">BOSS</span>
+              {:else if m.isClanBoss}
+                <span class="clan-badge">CLAN</span>
+              {/if}
+              {#if m.exterminatingLevelRequirement > 0}
+                <span class="req-inline" title="Requires Exterminating level {m.exterminatingLevelRequirement}">
+                  <span class="req-label">Requires:</span>
+                  <img
+                    class="req-icon-badge"
+                    src="./skilltaskicons/Exterminating.png"
+                    alt="Exterminating"
+                    on:error={onImgError}
+                  />
+                  {m.exterminatingLevelRequirement}
+                </span>
+              {/if}
+              {#if m.itemIdRequired > 0}
+                {@const reqRawName = itemNames[m.itemIdRequired] ?? ''}
+                {@const reqName = reqRawName ? itemDisplayName(reqRawName) : `#${m.itemIdRequired}`}
+                <span class="req-inline" title="Requires {reqName}">
+                  <span class="req-label">Requires:</span>
+                  <img
+                    class="req-icon-badge"
+                    src={itemIconPath(reqRawName)}
+                    alt="Requires {reqName}"
+                    on:error={onImgError}
+                  />
+                  {firstWord(reqName)}
+                </span>
+              {/if}
+            </div>
+            <div class="monster-line2">
+              <span class="hp-stat">
+                <img class="hp-icon" src="./skilltaskicons/Health.png" alt="HP" />
+                {m.health}
+              </span>
+              <span
+                class="weak-stat"
+                style="color:{weaknessColor(m.weaknessType)}"
+              >{weaknessCategory(m.weaknessType) === 'none' ? 'No Weakness' : `Weak to ${weaknessLabel(m.weaknessType)}`}</span>
+            </div>
           </div>
           <span class="row-arrow">›</span>
         </button>
@@ -621,6 +778,13 @@
     color: var(--text-sub);
     white-space: nowrap;
   }
+  .stat-label-icon {
+    width: 12px;
+    height: 12px;
+    object-fit: contain;
+    opacity: 0.75;
+    vertical-align: middle;
+  }
 
   /* ── Monster list ── */
   .monster-list {
@@ -646,18 +810,31 @@
     border-color: var(--accent-md);
   }
   .monster-icon {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     object-fit: contain;
     flex-shrink: 0;
     image-rendering: pixelated;
   }
-  .monster-info {
+  .monster-main {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+  }
+  .monster-line1 {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex: 1;
     min-width: 0;
+  }
+  .monster-line2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 10px;
   }
   .monster-name {
     font-size: 11px;
@@ -665,6 +842,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
   .boss-badge {
     font-size: 10px;
@@ -680,14 +858,47 @@
     letter-spacing: 0.04em;
     flex-shrink: 0;
   }
-  .monster-stats {
+  .hp-stat {
     display: flex;
-    gap: 6px;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-muted);
     flex-shrink: 0;
-    font-size: 10px;
   }
-  .hp-stat  { color: var(--text-muted); }
-  .weak-stat { font-weight: 600; }
+  .hp-icon {
+    width: 12px;
+    height: 12px;
+    object-fit: contain;
+    opacity: 0.75;
+    flex-shrink: 0;
+  }
+  .weak-stat { font-weight: 600; flex-shrink: 0; }
+  .req-inline {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    margin-left: auto;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 55%;
+  }
+  .req-label {
+    color: var(--text-faint);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .req-icon-badge {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
+    flex-shrink: 0;
+    image-rendering: pixelated;
+  }
   .row-arrow {
     font-size: 12px;
     color: var(--text-dim);
@@ -731,12 +942,90 @@
     color: var(--text-hi);
   }
 
+  /* ── Requirements ── */
+  .req-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 10px 8px;
+  }
+  .req-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-sub);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+  .req-pill-item { color: var(--accent); border-color: var(--accent-lo); }
+  .req-icon {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    flex-shrink: 0;
+    image-rendering: pixelated;
+  }
+
   .stat-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 6px;
     margin-bottom: 8px;
     padding: 0 10px;
+  }
+
+  /* ── Drop table ── */
+  .loot-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 10px 8px;
+  }
+  .loot-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: background 0.12s;
+  }
+  .loot-row:hover { background: var(--bg-raised); }
+  .loot-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    flex-shrink: 0;
+    image-rendering: pixelated;
+  }
+  .loot-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--text-hi);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .loot-amt {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-faint);
+  }
+  .loot-rate {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .loot-empty {
+    padding: 4px 10px 8px;
+    text-align: left;
   }
 
   /* ── Empty / error states ── */

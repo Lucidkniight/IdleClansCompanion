@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { xpToLevel } from './store';
+import { xpToLevel, isDemoMode } from './store';
 
 export interface TrackedPlayer {
   username: string;
@@ -46,6 +46,17 @@ const DB_NAME    = 'icc-tracker';
 const DB_VERSION = 1;
 const STORE_NAME = 'snapshots';
 
+// Demo-mode only: an in-memory stand-in for the IndexedDB layer below, so tracking
+// a player on the web demo works for the live session but leaves nothing behind —
+// no localStorage, no IndexedDB, gone on refresh. Real app / non-demo untouched.
+const memSnapshots = new Map<string, PlayerSnapshot[]>();
+
+function memGetSummary(userLower: string): SnapshotSummary | null {
+  const arr = memSnapshots.get(userLower);
+  if (!arr || arr.length === 0) return null;
+  return { first: arr[0], last: arr[arr.length - 1], count: arr.length };
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDB(): Promise<IDBDatabase> {
@@ -68,6 +79,12 @@ function userRange(userLower: string, fromTs = 0, toTs = Number.MAX_SAFE_INTEGER
 }
 
 async function putSnapshot(userLower: string, snap: PlayerSnapshot): Promise<void> {
+  if (isDemoMode) {
+    const arr = memSnapshots.get(userLower) ?? [];
+    arr.push(snap);
+    memSnapshots.set(userLower, arr);
+    return;
+  }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -78,6 +95,7 @@ async function putSnapshot(userLower: string, snap: PlayerSnapshot): Promise<voi
 }
 
 async function deleteUserSnapshots(userLower: string): Promise<void> {
+  if (isDemoMode) { memSnapshots.delete(userLower); return; }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -88,6 +106,9 @@ async function deleteUserSnapshots(userLower: string): Promise<void> {
 }
 
 async function getSnapshotsInRange(userLower: string, fromTs: number, toTs: number): Promise<PlayerSnapshot[]> {
+  if (isDemoMode) {
+    return (memSnapshots.get(userLower) ?? []).filter(s => s.timestamp >= fromTs && s.timestamp <= toTs);
+  }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx  = db.transaction(STORE_NAME, 'readonly');
@@ -98,6 +119,7 @@ async function getSnapshotsInRange(userLower: string, fromTs: number, toTs: numb
 }
 
 async function getUserSummary(userLower: string): Promise<SnapshotSummary | null> {
+  if (isDemoMode) return memGetSummary(userLower);
   const db    = await openDB();
   const range = userRange(userLower);
   return new Promise((resolve, reject) => {
@@ -153,10 +175,18 @@ async function migrateLegacySnapshots(): Promise<void> {
 
 // ── Player list + startup ─────────────────────────────────────────────────────
 function persistPlayers() {
+  if (isDemoMode) return; // session-only on the web demo — nothing survives a refresh
   localStorage.setItem(PLAYERS_KEY, JSON.stringify(get(trackedPlayers)));
 }
 
 async function loadStorage() {
+  if (isDemoMode) {
+    // Always starts empty — no localStorage list to restore, no legacy migration to run.
+    trackedPlayers.set([]);
+    snapshotSummaries.set({});
+    return;
+  }
+
   try {
     trackedPlayers.set(JSON.parse(localStorage.getItem(PLAYERS_KEY) ?? '[]'));
   } catch {
@@ -228,6 +258,11 @@ async function pollAll() {
  *  UI only clears specific localStorage keys per category, so the Progress
  *  Tracker category needs this to actually clear IndexedDB history too. */
 export async function deleteAllSnapshotData(): Promise<void> {
+  if (isDemoMode) {
+    memSnapshots.clear();
+    snapshotSummaries.set({});
+    return;
+  }
   dbPromise = null;
   await new Promise<void>((resolve, reject) => {
     const req = indexedDB.deleteDatabase(DB_NAME);

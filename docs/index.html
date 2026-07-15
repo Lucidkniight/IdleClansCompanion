@@ -316,6 +316,7 @@
 
     .feature-icon { font-size: 1.3rem; grid-column: 1; grid-row: 1; }
     .feature-card h3 { font-size: 0.95rem; font-weight: 600; grid-column: 2; grid-row: 1; }
+    .feature-card h3 a:hover { color: var(--accent); text-decoration: underline; }
     .feature-card p { font-size: 0.85rem; color: var(--text-sub); line-height: 1.55; grid-column: 1 / -1; grid-row: 2; margin-top: 0.5rem; }
 
     /* ── DIVIDER ── */
@@ -434,6 +435,7 @@
     <span class="nav-logo"><img src="icon.png" alt="" />Idle Clans <span>Companion</span></span>
     <div class="nav-links">
       <a href="#features">Features</a>
+      <a href="/try/">Try it in your browser</a>
       <a href="https://github.com/Lucidkniight/IdleClansCompanion/releases" >Releases</a>
       <a href="https://github.com/Lucidkniight/IdleClansCompanion" class="nav-gh">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -455,8 +457,8 @@
       <a href="https://github.com/Lucidkniight/IdleClansCompanion/releases/latest" class="btn-primary" id="download-btn">
         ↓&nbsp; Download for Windows
       </a>
-      <a href="https://github.com/Lucidkniight/IdleClansCompanion" class="btn-secondary">
-        View Source
+      <a href="/try/" class="btn-secondary">
+        ▶&nbsp; Try it in your browser
       </a>
     </div>
     <p class="smartscreen-note">Windows may show a SmartScreen warning — click "More info" → "Run anyway". The app is <a href="https://github.com/Lucidkniight/IdleClansCompanion">open source</a> and safe.</p>
@@ -497,52 +499,67 @@
       </div>
       <div class="feature-card">
         <div class="feature-icon">✨</div>
-        <h3>XP / GP Calculator</h3>
+        <h3><a href="/xp-calculator.html">XP / GP Calculator</a></h3>
         <p>Calculate XP per hour and time to goal level for any task. Factor in tools, gear, upgrades, and mastery capes. Includes a full profit-per-hour breakdown with live market prices.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🏪</div>
-        <h3>Live Market Prices</h3>
+        <h3><a href="/market-prices.html">Live Market Prices</a></h3>
         <p>Browse real-time buy and sell prices for any item. View order books, 24h price history charts, and price averages over 1, 7, and 30 days.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">⚔️</div>
-        <h3>Combat Calculator</h3>
+        <h3><a href="/combat-calculator.html">Combat Calculator</a></h3>
         <p>Estimate DPS, hit chance, and time-to-kill for any monster or boss. Configure your gear and combat style, and see expected loot value per hour at market price.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🏆</div>
-        <h3>Clan Cup Tracker</h3>
+        <h3><a href="/clan-cup.html">Clan Cup Tracker</a></h3>
         <p>Live leaderboard filterable by skill, boss kills, speed runs, and total points. Search any clan to see all their standings at once.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🔎</div>
-        <h3>Player Lookup</h3>
+        <h3><a href="/player-lookup.html">Player Lookup</a></h3>
         <p>Search any player by name. See every skill level and XP, upgrades, enchantments, PvM kill counts, game mode, and last active time.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">✅</div>
-        <h3>Completionist Tracker</h3>
+        <h3><a href="/completionist-calculator.html">Completionist Tracker</a></h3>
         <p>Track your progress toward the completionist cape. See exactly which requirements remain and get a time estimate for each one.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🐉</div>
-        <h3>Bestiary</h3>
+        <h3><a href="/bestiary.html">Bestiary</a></h3>
         <p>Browse every monster and boss in the game. See drop tables, combat stats, weaknesses, respawn timers, and filter by combat type.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🛡️</div>
-        <h3>Clan Overview</h3>
+        <h3><a href="/clan-tracker.html">Clan Overview</a></h3>
         <p>View a full XP leaderboard for any clan. Filter by skill, toggle lifetime vs contributed XP, and jump directly to any member's profile.</p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon">🌱</div>
+        <h3><a href="/progress-tracker.html">Progress Tracker</a></h3>
+        <p>Track XP gains over time for any player, not just your own account. Chart per-skill XP history over any date range, with unlimited history.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3><a href="/chat.html">Chat</a></h3>
+        <p>Follow every public chat channel in one merged feed. Set word or phrase alerts and get notified the moment they appear.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📰</div>
+        <h3><a href="/news.html">News</a></h3>
+        <p>Read the latest Idle Clans patch notes and announcements directly in the app, without opening a browser.</p>
+      </div>
+      <div class="feature-card">
         <div class="feature-icon">📖</div>
-        <h3>Wiki Search</h3>
+        <h3><a href="/wiki-search.html">Wiki Search</a></h3>
         <p>Search the Idle Clans wiki without leaving the app. Results open instantly in your default browser so you never lose your place.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">📝</div>
-        <h3>Notepad</h3>
+        <h3><a href="/notepad.html">Notepad</a></h3>
         <p>A persistent notepad saved locally. Keep goals, clan notes, to-do lists, or anything else you want close at hand while you play.</p>
       </div>
       <div class="feature-card">
@@ -561,6 +578,9 @@
     <div class="hero-actions">
       <a href="https://github.com/Lucidkniight/IdleClansCompanion/releases/latest" class="btn-primary" id="download-btn-cta">
         ↓&nbsp; Download for Windows
+      </a>
+      <a href="/try/" class="btn-secondary">
+        ▶&nbsp; Try it in your browser
       </a>
     </div>
   </section>

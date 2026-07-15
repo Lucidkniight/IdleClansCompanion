@@ -10,33 +10,11 @@
 
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { newsItems, newsLoading, newsError, refreshNews, newsNotifyEnabled } from '../lib/store';
 
-  interface NewsItem {
-    title: string;
-    body: string;
-    imageUrl: string | null;
-    linkUrl: string;
-    publishedAt: string;
-  }
-
-  let items: NewsItem[] = [];
-  let loading = true;
-  let error = false;
-
-  async function load() {
-    loading = true;
-    error = false;
-    try {
-      const res = await fetch('https://query.idleclans.com/api/news/latest?count=25');
-      if (!res.ok) throw new Error();
-      items = await res.json();
-    } catch {
-      error = true;
-    } finally {
-      loading = false;
-    }
-  }
+  $: items = $newsItems;
+  $: loading = $newsLoading && items.length === 0;
+  $: error = $newsError;
 
   function formatDate(iso: string): string {
     const d = new Date(iso);
@@ -51,8 +29,6 @@
     if (days < 365) return `${Math.floor(days / 30)}mo ago`;
     return `${Math.floor(days / 365)}y ago`;
   }
-
-  onMount(load);
 </script>
 
 
@@ -67,19 +43,33 @@
   <div class="state-box">
     <span class="state-icon">⚠</span>
     <span class="state-text">Could not load news.</span>
-    <button class="retry-btn" on:click={load}>Retry</button>
+    <button class="retry-btn" on:click={refreshNews}>Retry</button>
   </div>
 
 {:else}
   <div class="refresh-row">
     <span class="count">{items.length} post{items.length !== 1 ? 's' : ''}</span>
-    <button class="refresh-btn" on:click={load} title="Refresh">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="23 4 23 10 17 10"/>
-        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-      </svg>
-      Refresh
-    </button>
+    <div class="refresh-row-btns">
+      <button
+        class="notify-btn"
+        class:on={$newsNotifyEnabled}
+        on:click={() => newsNotifyEnabled.update(v => !v)}
+        title={$newsNotifyEnabled ? 'Notifications on — click to disable' : 'Notifications off — click to enable'}
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        Notify
+      </button>
+      <button class="refresh-btn" on:click={refreshNews} title="Refresh">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        Refresh
+      </button>
+    </div>
   </div>
 
   <div class="news-list">
@@ -135,7 +125,8 @@
     margin-bottom: 8px;
   }
   .count { font-size: 10px; color: var(--text-faint); }
-  .refresh-btn {
+  .refresh-row-btns { display: flex; align-items: center; gap: 6px; }
+  .refresh-btn, .notify-btn {
     display: inline-flex; align-items: center; gap: 4px;
     background: none; border: 1px solid var(--border); border-radius: 5px;
     color: var(--text-faint); font-size: 10px; font-weight: 700;
@@ -143,6 +134,8 @@
     transition: border-color 0.1s, color 0.1s; width: auto;
   }
   .refresh-btn:hover { border-color: var(--accent-md); color: var(--accent); }
+  .notify-btn:hover { border-color: var(--accent-md); color: var(--accent); }
+  .notify-btn.on { border-color: var(--accent-md); color: var(--accent); }
 
   /* ── News list ── */
   .news-list { display: flex; flex-direction: column; gap: 6px; }

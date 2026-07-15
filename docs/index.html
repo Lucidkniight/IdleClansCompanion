@@ -12,18 +12,23 @@
   <meta property="og:description" content="Free Windows desktop app for Idle Clans — XP/profit calculators, live market prices, multi-account management, and more." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://idleclanscompanion.com/" />
-  <meta property="og:image" content="https://github.com/user-attachments/assets/7a32173a-0eb7-4888-8d4d-76b5c27ff11e" />
+  <meta property="og:site_name" content="Idle Clans Companion" />
+  <meta property="og:image" content="https://idleclanscompanion.com/icon.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="512" />
+  <meta property="og:image:height" content="512" />
 
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Idle Clans Companion" />
   <meta name="twitter:description" content="Free Windows desktop app for Idle Clans — XP/profit calculators, live market prices, multi-account management, and more." />
-  <meta name="twitter:image" content="https://github.com/user-attachments/assets/7a32173a-0eb7-4888-8d4d-76b5c27ff11e" />
+  <meta name="twitter:image" content="https://idleclanscompanion.com/icon.png" />
+  <meta name="twitter:image:alt" content="Idle Clans Companion logo" />
 
   <link rel="icon" type="image/png" href="icon.png" />
   <link rel="canonical" href="https://idleclanscompanion.com/" />
   <link rel="sitemap" type="application/xml" href="sitemap.xml" />
 
-  <script type="application/ld+json">
+  <script type="application/ld+json" id="app-jsonld">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -38,8 +43,8 @@
     "description": "Free Windows desktop companion app for Idle Clans. Calculate XP rates and profit per hour, browse live market prices, manage multiple accounts, and track clan standings.",
     "url": "https://idleclanscompanion.com/",
     "downloadUrl": "https://github.com/Lucidkniight/IdleClansCompanion/releases/latest",
-    "softwareVersion": "0.3.4",
-    "screenshot": "https://github.com/user-attachments/assets/7a32173a-0eb7-4888-8d4d-76b5c27ff11e",
+    "softwareVersion": "0.3.8",
+    "screenshot": "https://idleclanscompanion.com/icon.png",
     "author": {
       "@type": "Person",
       "name": "Lucidkniight"
@@ -466,14 +471,14 @@
   <div class="screenshots">
     <p class="section-label" style="text-align:center; margin-bottom: 1rem;">See it in action</p>
     <div class="screenshots-inner">
-      <img src="screenshots/clients.png" alt="Idle Clans Companion — client manager showing multiple accounts" loading="lazy" />
-      <img src="screenshots/combatcalc.png" alt="Idle Clans Companion — combat calculator" loading="lazy" />
-      <img src="screenshots/market.png" alt="Idle Clans Companion — live market prices" loading="lazy" />
-      <img src="screenshots/playerlookup.png" alt="Idle Clans Companion — player lookup" loading="lazy" />
-      <img src="screenshots/bestiary.png" alt="Idle Clans Companion — bestiary" loading="lazy" />
-      <img src="screenshots/clan.png" alt="Idle Clans Companion — clan overview" loading="lazy" />
-      <img src="screenshots/clancup.png" alt="Idle Clans Companion — clan cup tracker" loading="lazy" />
-      <img src="screenshots/progresstracker.png" alt="Idle Clans Companion — progress tracker" loading="lazy" />
+      <img src="screenshots/clients.png" alt="Idle Clans Companion — client manager showing multiple accounts" loading="lazy" width="284" height="1000" />
+      <img src="screenshots/combatcalc.png" alt="Idle Clans Companion — combat calculator" loading="lazy" width="284" height="1000" />
+      <img src="screenshots/market.png" alt="Idle Clans Companion — live market prices" loading="lazy" width="284" height="1000" />
+      <img src="screenshots/playerlookup.png" alt="Idle Clans Companion — player lookup" loading="lazy" width="284" height="1000" />
+      <img src="screenshots/bestiary.png" alt="Idle Clans Companion — bestiary" loading="lazy" width="284" height="1000" />
+      <img src="screenshots/clan.png" alt="Idle Clans Companion — clan overview" loading="lazy" width="284" height="1000" />
+      <img src="screenshots/clancup.png" alt="Idle Clans Companion — clan cup tracker" loading="lazy" width="284" height="1000" />
+      <img src="screenshots/progresstracker.png" alt="Idle Clans Companion — progress tracker" loading="lazy" width="284" height="1000" />
     </div>
   </div>
 
@@ -582,6 +587,16 @@
     fetch('https://api.github.com/repos/Lucidkniight/IdleClansCompanion/releases/latest')
       .then(r => r.json())
       .then(data => {
+        const version = data.tag_name?.replace(/^v/, '');
+        if (version) {
+          const jsonld = document.getElementById('app-jsonld');
+          try {
+            const parsed = JSON.parse(jsonld.textContent);
+            parsed.softwareVersion = version;
+            jsonld.textContent = JSON.stringify(parsed);
+          } catch {}
+        }
+
         const asset = data.assets?.find(a => a.name.endsWith('.exe'));
         if (!asset) return;
         const url = asset.browser_download_url;

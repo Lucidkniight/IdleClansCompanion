@@ -639,6 +639,23 @@ export async function fetchProfile(playerName: string): Promise<PlayerProfile | 
   }
 }
 
+export const FETCH_PROFILES_MAX_BATCH = 20;
+
+/** Bulk profile lookup — up to FETCH_PROFILES_MAX_BATCH usernames per call. Players
+ *  that don't exist are simply omitted from the response array (no null placeholder),
+ *  so callers must match returned profiles back to requested usernames themselves. */
+export async function fetchProfiles(usernames: string[]): Promise<PlayerProfile[]> {
+  if (usernames.length === 0) return [];
+  try {
+    const params = usernames.map(u => `usernames=${encodeURIComponent(u)}`).join('&');
+    const res = await fetch(`${API_BASE}/api/Player/profiles?${params}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchClanProfile(clanName: string): Promise<ClanProfile | null> {
   try {
     const res = await fetch(`${API_BASE}/api/Clan/recruitment/${encodeURIComponent(clanName)}`);

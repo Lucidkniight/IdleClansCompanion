@@ -97,17 +97,20 @@ const FEEDBACK_ENTRY_TYPE    = 'entry.34567192';
 const FEEDBACK_ENTRY_DESC    = 'entry.1538414375';
 const FEEDBACK_ENTRY_VERSION = 'entry.387633934';
 const FEEDBACK_ENTRY_TOOL    = 'entry.2080847514';
+const FEEDBACK_ENTRY_DISCORD = 'entry.1649987866';
 
 let showFeedbackModal = false;
 let feedbackType: 'Bug Report' | 'Suggestion' = 'Bug Report';
 let feedbackTool = 'General';
 let feedbackText = '';
+let feedbackDiscord = '';
 let feedbackState: 'idle' | 'submitting' | 'done' = 'idle';
 
 function openFeedback(type: 'Bug Report' | 'Suggestion') {
   feedbackType = type;
   feedbackTool = 'General';
   feedbackText = '';
+  feedbackDiscord = '';
   feedbackState = 'idle';
   showFeedbackModal = true;
 }
@@ -154,6 +157,7 @@ async function submitFeedback() {
     [FEEDBACK_ENTRY_DESC]: feedbackText.trim(),
     [FEEDBACK_ENTRY_VERSION]: __APP_VERSION__,
   });
+  if (feedbackDiscord.trim()) body.set(FEEDBACK_ENTRY_DISCORD, feedbackDiscord.trim());
   try {
     await fetch(FEEDBACK_FORM_URL, { method: 'POST', body, mode: 'no-cors' });
   } catch {}
@@ -167,12 +171,12 @@ interface WipeCategory {
 }
 
 const WIPE_CATS: WipeCategory[] = [
-  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out','s-last-seen-version'] },
+  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out','s-last-seen-version','s-wiki-in-app'] },
   { id: 'alerts',    label: 'Alerts',           desc: 'Price, chat word, and news alert rules and triggered notification history', keys: ['icc-price-alerts','icc-triggered-alerts','icc-chat-alerts','icc-chat-triggered','icc-news-triggered'] },
   { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], extra: deleteAllSnapshotData },
   { id: 'combat',    label: 'Combat Loadouts',  desc: 'Saved gear loadouts from the Combat Calculator library',        keys: ['icc-combat-saves'] },
   { id: 'notepad',   label: 'Notepad',          desc: 'All saved notes',                                               keys: ['notepad'] },
-  { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-calc-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent','icc-chat-channels','icc-chat-messages','icc-news-notify','icc-news-last-seen'] },
+  { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-calc-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent','icc-chat-channels','icc-chat-messages','icc-news-notify','icc-news-last-seen','icc-wiki-favourites'] },
 ];
 let wipeSelected: Set<string> = new Set(WIPE_CATS.map(c => c.id));
 
@@ -347,6 +351,7 @@ const _storedZoom = parseFloat(localStorage.getItem('s-zoom') ?? '1');
 let settingZoomIdx = (() => { const i = ZOOM_OPTIONS.findIndex(v => Math.abs(v - _storedZoom) < 0.01); return i !== -1 ? i : ZOOM_OPTIONS.indexOf(1); })();
 let settingZoom = ZOOM_OPTIONS[settingZoomIdx];
 let settingAlwaysOnTop    = localStorage.getItem('s-aot') === 'true';
+let settingWikiInApp      = localStorage.getItem('s-wiki-in-app') !== 'false'; // default on
 let settingAnalyticsOptOut = localStorage.getItem('s-analytics-opt-out') === 'true';
 const _storedFps = parseFloat(localStorage.getItem('s-prev-fps') ?? '1');
 let settingPreviewFpsIdx = (() => { const i = FPS_OPTIONS.indexOf(_storedFps); return i !== -1 ? i : 4; })();
@@ -365,6 +370,7 @@ $: {
   (window as any).electronAPI.setAlwaysOnTop(settingAlwaysOnTop);
 }
 $: localStorage.setItem('s-api-debug', String(settingApiDebug));
+$: localStorage.setItem('s-wiki-in-app', String(settingWikiInApp));
 $: localStorage.setItem('s-analytics-opt-out', String(settingAnalyticsOptOut));
 
 function toggleAnalyticsOptOut() {
@@ -589,6 +595,12 @@ onDestroy(() => {
         <div class="settings-row">
           <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Keeps the companion window above all other windows.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Always on top</span>
           <button class="toggle" class:on={settingAlwaysOnTop} on:click={() => settingAlwaysOnTop = !settingAlwaysOnTop}>
+            <span class="toggle-thumb" />
+          </button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Opens wiki pages in a docked popup window instead of your default browser.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Open wiki in-app</span>
+          <button class="toggle" class:on={settingWikiInApp} on:click={() => settingWikiInApp = !settingWikiInApp} aria-label="Toggle open wiki in-app">
             <span class="toggle-thumb" />
           </button>
         </div>
@@ -1089,6 +1101,14 @@ onDestroy(() => {
           disabled={feedbackState === 'submitting'}
           on:input={(e) => autoGrow(e.currentTarget as HTMLTextAreaElement)}
         ></textarea>
+        <input
+          class="feedback-discord-input"
+          type="text"
+          placeholder="Discord (optional)"
+          bind:value={feedbackDiscord}
+          maxlength={100}
+          disabled={feedbackState === 'submitting'}
+        />
         <div class="modal-actions">
           <button class="modal-cancel" on:click={() => showFeedbackModal = false} disabled={feedbackState === 'submitting'}>Cancel</button>
           <button class="modal-submit" on:click={submitFeedback} disabled={!feedbackText.trim() || feedbackState === 'submitting'}>
@@ -1764,6 +1784,17 @@ onDestroy(() => {
   .feedback-textarea:focus { border-color: var(--accent-md); }
   .feedback-textarea::placeholder { color: var(--text-faint); }
   .feedback-textarea:disabled { opacity: 0.6; }
+
+  .feedback-discord-input {
+    width: 100%; margin-top: 8px;
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); font-size: 11px;
+    padding: 8px 10px; font-family: 'Nunito', sans-serif;
+    outline: none;
+  }
+  .feedback-discord-input:focus { border-color: var(--accent-md); }
+  .feedback-discord-input::placeholder { color: var(--text-faint); }
+  .feedback-discord-input:disabled { opacity: 0.6; }
 
   .modal-submit {
     background: var(--accent-lo); border: 1px solid var(--accent-md); color: var(--accent);

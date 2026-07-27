@@ -9,9 +9,98 @@ import { windowManager } from 'node-window-manager';
 import { Window as ScreenshotWindow } from 'node-screenshots';
 
 let mainWindow: BrowserWindow;
+let wikiWindow: BrowserWindow | null = null; // PoC: in-app wiki popup, see open-wiki-popup handler
+let wikiLoadingWindow: BrowserWindow | null = null; // PoC: throbber overlay shown while wikiWindow navigates
 let zoomFactor = 1;
 
+// Renderer sends its live --bg-base/--accent/--accent-lo (getComputedStyle on the
+// themed <body>) so the throbber matches whichever of the 9 themes is active,
+// instead of a hardcoded color hand-copied from one theme's CSS.
+interface WikiThemeColors { bg: string; accent: string; accentLo: string; border: string; bgRaised: string; }
+const DEFAULT_WIKI_COLORS: WikiThemeColors = {
+  bg: '#0e0f15', accent: '#8890b0', accentLo: 'rgba(136,144,176,0.3)', border: '#1e2030', bgRaised: '#1a1c2e',
+};
+let currentWikiColors: WikiThemeColors = DEFAULT_WIKI_COLORS; // read by the dom-ready scrollbar injector below
+
+function wikiLoadingHtml(c: WikiThemeColors) {
+  return `<!DOCTYPE html><html><head><style>
+  html, body { margin: 0; height: 100%; background: ${c.bg}; display: flex; align-items: center; justify-content: center; }
+  .spinner { width: 36px; height: 36px; border: 3px solid ${c.accentLo}; border-top-color: ${c.accent}; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style></head><body><div class="spinner"></div></body></html>`;
+}
+
+// Mirrors the app's own global ::-webkit-scrollbar rules (App.svelte) — injected into
+// the wiki page itself since it's real external content with its own default scrollbar.
+function wikiScrollbarCss(c: WikiThemeColors) {
+  return `
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: ${c.border}; border-radius: 4px; border-left: 2px solid transparent; border-right: 1px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-thumb:hover { background: ${c.bgRaised}; background-clip: padding-box; }
+  `;
+}
+
+// Resolves only once the overlay has actually painted its first frame — awaited
+// before wikiWindow is touched, so on first open there's no race where wikiWindow
+// becomes visible (native white frame) before the overlay is there to cover it.
+// Colors are only applied when the overlay window is first created — re-opens just
+// reposition/show the existing (already-painted) overlay, so a theme change won't
+// be reflected until the wiki popup is fully closed and reopened.
+function showWikiLoadingOverlay(bounds: { x: number; y: number; width: number; height: number }, colors: WikiThemeColors): Promise<void> {
+  if (wikiLoadingWindow && !wikiLoadingWindow.isDestroyed()) {
+    wikiLoadingWindow.setBounds(bounds);
+    wikiLoadingWindow.show();
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    wikiLoadingWindow = new BrowserWindow({
+      ...bounds,
+      show: false,
+      frame: false,
+      resizable: false,
+      movable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true, // stays above wikiWindow without manual z-order juggling
+      backgroundColor: colors.bg,
+      webPreferences: { devTools: false },
+    });
+    wikiLoadingWindow.once('ready-to-show', () => {
+      wikiLoadingWindow?.show();
+      resolve();
+    });
+    wikiLoadingWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(wikiLoadingHtml(colors))}`);
+  });
+}
+
+function hideWikiLoadingOverlay() {
+  if (wikiLoadingWindow && !wikiLoadingWindow.isDestroyed()) wikiLoadingWindow.hide();
+}
+
 function appWidth() { return Math.round(300 * zoomFactor); }
+
+// Windows fires 'move' once per pixel of mouse movement during a drag — throttle
+// so we're not making a synchronous native setBounds() call on every single tick.
+function throttle(fn: () => void, ms: number) {
+  let last = 0;
+  let timer: NodeJS.Timeout | null = null;
+  return () => {
+    const now = Date.now();
+    const remaining = ms - (now - last);
+    if (remaining <= 0) {
+      last = now;
+      if (timer) { clearTimeout(timer); timer = null; }
+      fn();
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        last = Date.now();
+        timer = null;
+        fn();
+      }, remaining);
+    }
+  };
+}
+const throttledSnap = throttle(() => { snapActiveWindow(false); snapWikiWindow(false); }, 16);
 
 app.once("ready", main);
 
@@ -30,12 +119,24 @@ async function main() {
     },
 
   });
-  mainWindow.on('move', () => snapActiveWindow(false));
+  mainWindow.on('move', throttledSnap);
   mainWindow.on('resize', () => {
     const [w, h] = mainWindow.getSize();
     if (w !== appWidth()) mainWindow.setSize(appWidth(), h);
     snapActiveWindow(false);
+    snapWikiWindow(false);
   });
+  // Tabbing back into the companion app should keep a selected game window docked
+  // alongside it — but NOT via snapActiveWindow(true)/bringToTop(): that calls
+  // node-window-manager's bringWindowToTop(), which on Windows calls
+  // SetForegroundWindow/SetFocus/SetActiveWindow on the *game* window, stealing OS
+  // keyboard focus right back from mainWindow the instant it receives it. Since this
+  // handler fires on every mainWindow focus (including a plain click into a search
+  // bar while the game window happens to be foregrounded), that made text inputs
+  // unusable whenever a client was open/selected — every click-to-focus was
+  // immediately undone. snapWikiWindow's bringToTop uses Electron's own moveTop(),
+  // which reorders z-order without activating, so it's unaffected and safe to keep.
+  mainWindow.on('focus', () => { snapActiveWindow(false); snapWikiWindow(true); });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -98,6 +199,53 @@ ipcMain.handle('set-always-on-top', (_event, value: boolean) => {
 
 ipcMain.handle('open-external', (_event, url: string) => {
   shell.openExternal(url);
+});
+
+// PoC (revertable): pops a real browser window docked to the right of mainWindow
+// instead of shell.openExternal — used by the Wiki tool so wiki pages open in-app.
+ipcMain.handle('open-wiki-popup', async (_event, url: string, colors?: Partial<WikiThemeColors>) => {
+  try {
+    const c: WikiThemeColors = { ...DEFAULT_WIKI_COLORS, ...colors };
+    currentWikiColors = c;
+    const bounds = computeDockedBounds();
+    await showWikiLoadingOverlay(bounds, c); // wait for the overlay's first paint before touching wikiWindow
+
+    if (wikiWindow && !wikiWindow.isDestroyed()) {
+      wikiWindow.setBackgroundColor(c.bg); // cheap — keeps it current even if reused across a theme change
+      wikiWindow.setBounds(bounds);
+      wikiWindow.loadURL(url);
+      wikiWindow.show();
+      wikiWindow.focus();
+      return;
+    }
+
+    wikiWindow = new BrowserWindow({
+      ...bounds,
+      show: false, // stays hidden until its own first paint — overlay covers the wait either way
+      title: 'Idle Clans Wiki',
+      icon: join(__dirname, 'icon.ico'),
+      backgroundColor: c.bg,
+      parent: mainWindow, // owned window — OS closes it automatically when mainWindow closes
+      webPreferences: { devTools: !app.isPackaged },
+    });
+    wikiWindow.once('ready-to-show', () => { wikiWindow?.show(); });
+    // dom-ready fires on every navigation (including entry switches on the reused
+    // window) — reads currentWikiColors at fire-time so it always reflects the
+    // latest theme, not whatever was current when this listener was registered.
+    wikiWindow.webContents.on('dom-ready', () => {
+      wikiWindow?.webContents.insertCSS(wikiScrollbarCss(currentWikiColors));
+    });
+    wikiWindow.webContents.on('did-finish-load', hideWikiLoadingOverlay);
+    wikiWindow.webContents.on('did-fail-load', () => { wikiWindow?.show(); hideWikiLoadingOverlay(); });
+    wikiWindow.on('closed', () => {
+      wikiWindow = null;
+      if (wikiLoadingWindow && !wikiLoadingWindow.isDestroyed()) wikiLoadingWindow.destroy();
+      wikiLoadingWindow = null;
+    });
+    wikiWindow.loadURL(url);
+  } catch (e) {
+    console.error(e);
+  }
 });
 
 
@@ -170,23 +318,44 @@ ipcMain.handle('get-game-windows', () => {
 let activeGameId: number | null = null;
 let activeGameWin: any = null;
 
+// Shared docking geometry: fills the screen to the right of mainWindow, capped to a
+// 16:9 width so it doesn't stretch absurdly wide on ultrawide/large monitors.
+function computeDockedBounds() {
+  const [x, y] = mainWindow.getPosition();
+  const [, h] = mainWindow.getSize();
+  const display = screen.getDisplayNearestPoint({ x, y });
+  const aw = appWidth();
+  const availableWidth = display.workArea.width - aw;
+  const heightBasedWidth = Math.round(h * (16 / 9));
+  const width = Math.min(availableWidth, heightBasedWidth);
+  return { x: x + aw, y, width, height: h };
+}
+
 function snapActiveWindow(bringToTop = false) {
   if (activeGameWin === null) return;
   try {
-    const [x, y] = mainWindow.getPosition();
-    const [, h] = mainWindow.getSize();
-    const display = screen.getDisplayNearestPoint({ x, y });
-    const aw = appWidth();
-    const availableWidth = display.workArea.width - aw;
-    const heightBasedWidth = Math.round(h * (16 / 9));
-    const gameWidth = Math.min(availableWidth, heightBasedWidth);
-    activeGameWin.restore();
-    activeGameWin.setBounds({ x: x + aw, y, width: gameWidth, height: h });
+    activeGameWin.setBounds(computeDockedBounds());
     if (bringToTop) activeGameWin.bringToTop();
   } catch (e) {
     // Window likely closed — clear stale reference
     activeGameWin = null;
     activeGameId = null;
+    console.error(e);
+  }
+}
+
+// PoC: same docking behaviour as snapActiveWindow, for the wiki popup window.
+function snapWikiWindow(bringToTop = false) {
+  if (wikiWindow === null || wikiWindow.isDestroyed()) return;
+  try {
+    const bounds = computeDockedBounds();
+    wikiWindow.setBounds(bounds);
+    if (wikiLoadingWindow && !wikiLoadingWindow.isDestroyed() && wikiLoadingWindow.isVisible()) {
+      wikiLoadingWindow.setBounds(bounds);
+    }
+    if (bringToTop) wikiWindow.moveTop();
+  } catch (e) {
+    wikiWindow = null;
     console.error(e);
   }
 }
@@ -217,6 +386,7 @@ ipcMain.handle('focus-window', (_event: any, id: number | null) => {
     (all as any).length = 0;
 
     if (id !== null) {
+      activeGameWin?.restore();
       snapActiveWindow(true);
       setTimeout(() => { if (activeGameId === id) snapActiveWindow(false); }, 150);
     }

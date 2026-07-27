@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { xpToLevel, isDemoMode } from './store';
+import { xpToLevel, isDemoMode, fetchProfiles, FETCH_PROFILES_MAX_BATCH } from './store';
 
 export interface TrackedPlayer {
   username: string;
@@ -202,6 +202,35 @@ async function loadStorage() {
   snapshotSummaries.set(Object.fromEntries(entries));
 }
 
+function buildSnapshot(username: string, data: any): PlayerSnapshot {
+  const skills: Record<string, number> = data.skillExperiences ?? {};
+  const xpValues = Object.values(skills) as number[];
+  const totalXp    = xpValues.reduce((s, v) => s + v, 0);
+  const totalLevel = xpValues.reduce((s, xp) => s + xpToLevel(xp), 0);
+
+  return {
+    username,
+    canonicalName: data.username ?? username,
+    timestamp: Date.now(),
+    totalLevel,
+    totalXp,
+    skills,
+    pvmStats: data.pvmStats ?? {},
+    task: data.taskNameOnLogout ?? null,
+    gameMode: data.gameMode ?? null,
+    guildName: data.guildName ?? null,
+  };
+}
+
+async function persistSnapshot(username: string, snap: PlayerSnapshot): Promise<void> {
+  const key = username.toLowerCase();
+  await putSnapshot(key, snap);
+  snapshotSummaries.update(all => {
+    const prev = all[key];
+    return { ...all, [key]: { first: prev?.first ?? snap, last: snap, count: (prev?.count ?? 0) + 1 } };
+  });
+}
+
 async function doFetch(username: string): Promise<boolean> {
   try {
     const res = await fetch(
@@ -209,48 +238,42 @@ async function doFetch(username: string): Promise<boolean> {
     );
     if (!res.ok) return false;
     const data = await res.json();
-
-    const skills: Record<string, number> = data.skillExperiences ?? {};
-    const xpValues = Object.values(skills) as number[];
-    const totalXp    = xpValues.reduce((s, v) => s + v, 0);
-    const totalLevel = xpValues.reduce((s, xp) => s + xpToLevel(xp), 0);
-
-    const snap: PlayerSnapshot = {
-      username,
-      canonicalName: data.username ?? username,
-      timestamp: Date.now(),
-      totalLevel,
-      totalXp,
-      skills,
-      pvmStats: data.pvmStats ?? {},
-      task: data.taskNameOnLogout ?? null,
-      gameMode: data.gameMode ?? null,
-      guildName: data.guildName ?? null,
-    };
-
-    const key = username.toLowerCase();
-    await putSnapshot(key, snap);
-    snapshotSummaries.update(all => {
-      const prev = all[key];
-      return { ...all, [key]: { first: prev?.first ?? snap, last: snap, count: (prev?.count ?? 0) + 1 } };
-    });
+    await persistSnapshot(username, buildSnapshot(username, data));
     return true;
   } catch {
     return false;
   }
 }
 
+// Fetches everyone due for a refresh via the bulk profiles endpoint, chunked to
+// FETCH_PROFILES_MAX_BATCH usernames per request instead of one request per player.
 async function pollAll() {
   const players   = get(trackedPlayers);
   const summaries = get(snapshotSummaries);
-  for (const p of players) {
-    const key    = p.username.toLowerCase();
-    const lastTs = summaries[key]?.last.timestamp ?? 0;
-    if (Date.now() - lastTs < REFRESH_MS) continue;
-    fetchingSet.update(s => new Set([...s, key]));
-    const ok = await doFetch(p.username);
-    fetchingSet.update(s => { const n = new Set(s); n.delete(key); return n; });
-    errorSet.update(s => { const n = new Set(s); ok ? n.delete(key) : n.add(key); return n; });
+  const due = players.filter(p => {
+    const lastTs = summaries[p.username.toLowerCase()]?.last.timestamp ?? 0;
+    return Date.now() - lastTs >= REFRESH_MS;
+  });
+  if (due.length === 0) return;
+
+  for (let i = 0; i < due.length; i += FETCH_PROFILES_MAX_BATCH) {
+    const batch = due.slice(i, i + FETCH_PROFILES_MAX_BATCH);
+    const keys  = batch.map(p => p.username.toLowerCase());
+    fetchingSet.update(s => new Set([...s, ...keys]));
+
+    const profiles = await fetchProfiles(batch.map(p => p.username));
+    const byKey = new Map<string, any>();
+    for (const p of profiles) {
+      if (p?.username) byKey.set(p.username.toLowerCase(), p);
+    }
+
+    for (const p of batch) {
+      const key  = p.username.toLowerCase();
+      const data = byKey.get(key);
+      if (data) await persistSnapshot(p.username, buildSnapshot(p.username, data));
+      errorSet.update(s => { const n = new Set(s); data ? n.delete(key) : n.add(key); return n; });
+    }
+    fetchingSet.update(s => { const n = new Set(s); for (const k of keys) n.delete(k); return n; });
   }
 }
 

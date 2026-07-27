@@ -33,6 +33,7 @@ export function installDemoElectronAPI(): void {
     getWindowPreviews: async (ids: number[]) =>
       Object.fromEntries(ids.map(id => [id, demoPreviewUrl(id)])),
     openExternal: async (url: string) => { window.open(url, '_blank', 'noopener'); },
+    openWikiPopup: async (url: string) => { window.open(url, '_blank', 'noopener'); },
     browseExe: async () => ({ path: null, error: null }),
     launchGameClients: async () => {},
     setZoomFactor: async () => {},

@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-import { formatGold, xpToLevel, fetchProfile, navigate, createNavListener, clients, type ClientCard } from '../lib/store';
+import { formatGold, xpToLevel, fetchProfiles, FETCH_PROFILES_MAX_BATCH, navigate, createNavListener, clients, type ClientCard } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
 import DevPanel from '../lib/DevPanel.svelte';
 
@@ -151,9 +151,9 @@ async function fetchClan() {
 
     const usernames = contributedPlayers.map(p => p.username);
     const lifetime: PlayerEntry[] = [];
-    for (let i = 0; i < usernames.length; i += 5) {
-      const batch = usernames.slice(i, i + 5);
-      const profiles = await Promise.all(batch.map(u => fetchProfile(u)));
+    for (let i = 0; i < usernames.length; i += FETCH_PROFILES_MAX_BATCH) {
+      const batch = usernames.slice(i, i + FETCH_PROFILES_MAX_BATCH);
+      const profiles = await fetchProfiles(batch);
       for (const p of profiles) {
         if (p?.skillExperiences) {
           lifetime.push({
@@ -163,7 +163,7 @@ async function fetchClan() {
           });
         }
       }
-      if (i + 5 < usernames.length) await new Promise(r => setTimeout(r, 200));
+      if (i + FETCH_PROFILES_MAX_BATCH < usernames.length) await new Promise(r => setTimeout(r, 200));
     }
     lifetimePlayers = lifetime;
 

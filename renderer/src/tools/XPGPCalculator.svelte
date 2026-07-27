@@ -42,7 +42,23 @@ const CAPE_TIERS = [
   { label: 'T4 (20%)',value: 0.20 },
 ];
 
-const GEAR_PIECES_OPTIONS = [0,1,2,3].map(n => ({ label: `${n} piece${n !== 1 ? 's' : ''} (${n * 2}%)`, value: n }));
+// Not every skill has a wearable armor set — some only have gloves (modeled separately
+// as the generic "Skilling gloves" toggle below). Source: wiki gear-per-skill table.
+// Crafting uniquely has a 4th piece (Artisan's boots, from Minotaur).
+const GEAR_CONFIG: Record<string, { max: number; slots: string[] }> = {
+  crafting:   { max: 4, slots: ['head', 'body', 'legs', 'boots'] },
+  woodcutting:{ max: 3, slots: ['head', 'body', 'legs'] },
+  fishing:    { max: 3, slots: ['head', 'body', 'legs'] },
+  cooking:    { max: 3, slots: ['head', 'body', 'legs'] },
+  mining:     { max: 3, slots: ['head', 'body', 'legs'] },
+  foraging:   { max: 3, slots: ['head', 'body', 'legs'] },
+  agility:    { max: 3, slots: ['head', 'body', 'legs'] },
+  plundering: { max: 3, slots: ['head', 'body', 'legs'] },
+};
+function gearConfigFor(skill: string) { return GEAR_CONFIG[skill.toLowerCase()] ?? { max: 0, slots: [] }; }
+function gearPiecesOptionsFor(max: number) {
+  return Array.from({ length: max + 1 }, (_, n) => ({ label: `${n} piece${n !== 1 ? 's' : ''} (${n * 2}%)`, value: n }));
+}
 
 const JEWELRY_TYPES = [
   { short: '—', label: 'None',        value: 0 },
@@ -181,7 +197,8 @@ const _defaultCalcMods = () => ({
 
 $: if (selectedSkill) {
   const _m = _calcSkillMods[selectedSkill] ?? _defaultCalcMods();
-  modTool = _m.modTool ?? 0; modGearPieces = _m.modGearPieces ?? 0;
+  modTool = _m.modTool ?? 0;
+  modGearPieces = Math.min(_m.modGearPieces ?? 0, gearConfigFor(selectedSkill).max);
   modCapeTier = _m.modCapeTier ?? 0; modGatherers = _m.modGatherers ?? false;
   modFishermanTier = _m.modFishermanTier ?? 0;
   modBetterFisherman = _m.modBetterFisherman ?? false;
@@ -372,6 +389,8 @@ $: xpTasks = (() => {
     });
 })();
 
+$: gearPiecesMax = gearConfigFor(selectedSkill).max;
+$: gearPiecesOptions = gearPiecesOptionsFor(gearPiecesMax);
 $: xpCurrentLevel = xpToLevel(xpCurrentXp);
 $: clientsWithProfile = $clients.filter(c => c.playerName && c.profile?.skillExperiences);
 
@@ -534,12 +553,13 @@ function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?:
       if (glovesId && glovesId > 0) {
         modGloves = cleanName(glovesId) === `${skillLower}_gloves`;
       }
+      const gc = gearConfigFor(skillLower);
       let gear = 0;
-      for (const slot of ['head','body','legs']) {
+      for (const slot of gc.slots) {
         const id = equip[slot];
         if (id && matchesSkill(id)) gear++;
       }
-      modGearPieces = Math.min(gear, 3);
+      modGearPieces = Math.min(gear, gc.max);
     }
   }
 }
@@ -659,10 +679,12 @@ async function doImportFromClient(client: ClientCard) {
         <CustomSelect autofill={importFilledFields.has('tool')} bind:value={modTool} options={TOOL_TIERS} />
       </div>
 
-      <div class="mod-row">
-        <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Skill-specific gear pieces worn. Each piece reduces task time by 2%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Gear pieces</span>
-        <CustomSelect autofill={importFilledFields.has('gear')} bind:value={modGearPieces} options={GEAR_PIECES_OPTIONS} />
-      </div>
+      {#if gearPiecesMax > 0}
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, `Skill-specific gear pieces worn. Each piece reduces task time by 2%.${gearPiecesMax === 4 ? ' This skill has 4 pieces (includes boots).' : ''}`)} on:mousemove={moveTip} on:mouseleave={hideTip}>Gear pieces</span>
+          <CustomSelect autofill={importFilledFields.has('gear')} bind:value={modGearPieces} options={gearPiecesOptions} />
+        </div>
+      {/if}
 
       <div class="mod-row">
         <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Jewelry slots. Each piece reduces task time — Common 1.5%, Rare 3.5%, Exceptional 5%.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Jewelry</span>

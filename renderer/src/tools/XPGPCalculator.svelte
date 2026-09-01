@@ -103,6 +103,35 @@ const FISHERMAN_TIERS = [
   { label: 'T5 — 100%', value: 1.00 },
 ];
 
+const MOST_EFFICIENT_FISHERMAN_TIERS = [
+  { label: 'None', value: 0 },
+  { label: 'T1 — 10%', value: 0.10 },
+  { label: 'T2 — 20%', value: 0.20 },
+  { label: 'T3 — 30%', value: 0.30 },
+  { label: 'T4 — 40%', value: 0.40 },
+  { label: 'T5 — 50%', value: 0.50 },
+];
+
+// Raw fish -> its cooked-form output. Sourced from game-data (Tasks.Cooking entries whose
+// sole Cost is the matching raw fish, ItemAmount 1:1). LevelRequirement is the Cooking task's
+// own level gate — the wiki confirms Most Efficient Fisherman needs "the Cooking level of the
+// fish you are Fishing" to proc, i.e. this same threshold, not a Fishing-side requirement.
+const FISH_COOK_MAP: Record<string, { cookedId: number; level: number; exp: number }> = {
+  piranha:       { cookedId: 160, level: 1,   exp: 10 },
+  perch:         { cookedId: 102, level: 10,  exp: 16 },
+  mackerel:      { cookedId: 100, level: 15,  exp: 20 },
+  cod:           { cookedId: 164, level: 20,  exp: 26 },
+  trout:         { cookedId: 104, level: 25,  exp: 33 },
+  salmon:        { cookedId: 105, level: 30,  exp: 40 },
+  carp:          { cookedId: 106, level: 40,  exp: 56 },
+  zander:        { cookedId: 158, level: 50,  exp: 80 },
+  pufferfish:    { cookedId: 162, level: 60,  exp: 105 },
+  anglerfish:    { cookedId: 156, level: 70,  exp: 155 },
+  tuna:          { cookedId: 562, level: 85,  exp: 255 },
+  bloodmoon_eel: { cookedId: 888, level: 95,  exp: 892 },
+  sea_serpent:   { cookedId: 957, level: 105, exp: 446 },
+};
+
 const LUMBERJACK_TIERS = [
   { label: 'None', value: 0 },
   { label: 'T1 — 20%', value: 0.20 },
@@ -146,6 +175,22 @@ const SMELTING_MAGIC_TIERS = [
 
 const PLANK_BARGAIN_MAP = [0, 0.30, 0.60, 1.00];
 
+// Guardian's tools — rare 0.1% drops from the Guardians of the Citadel raid, one per
+// skill. Not part of the regular tier-name pattern (_TIER_MAP), so each is detected/applied
+// separately rather than folding into modTool. Sourced from the wiki (game-data has no
+// localization strings describing item effects, only raw ProcChance/SkillBoost numbers).
+const MALLET_PLANK_MAP: Record<string, { plankId: number; chanceDivisor?: number }> = {
+  spruce: { plankId: 20 }, pine: { plankId: 21 }, oak: { plankId: 23 }, maple: { plankId: 24 },
+  teak: { plankId: 25 }, chestnut: { plankId: 22 }, mahogany: { plankId: 26 }, yew: { plankId: 27 },
+  redwood: { plankId: 586 }, magical: { plankId: 587 },
+  // Ignis heartwood costs 3 logs per unit, so the 10% per-log proc effectively lands 1/3 as often.
+  ignis: { plankId: 913, chanceDivisor: 3 },
+};
+const LAMP_ORE_TASKS = new Set(['gold_ore', 'platinum_ore', 'meteorite_ore', 'diamond_ore', 'titanium_ore']);
+const LAMP_COAL_ITEM_ID = 31;
+const LAMP_COAL_EXP = 24;
+const CHISEL_GEM_TASKS = new Set(['refined_weapon', 'great_weapon', 'elite_weapon', 'superior_weapon', 'outstanding_weapon', 'godlike_weapon', 'otherworldly_item']);
+
 type Speed = 'instant' | 'slow';
 
 let loading = false;
@@ -160,8 +205,11 @@ let modJewelry2 = 0; // Bracelet
 let modJewelry3 = 0; // Earrings
 let modCapeTier = 0;
 let modGatherers = false;
+let modPotionTrickery = false;
 let modFishermanTier = 0;
 let modBetterFisherman = false;
+let modMostEfficientFishermanTier = 0;
+let modCookingLevel = 1;
 let modLumberjackTier = 0;
 let modBetterLumberjack = false;
 let modConsumable: 0 | 0.02 | 0.04 = 0;
@@ -175,6 +223,11 @@ let modPlankBargainTier = 0;
 let modSmeltingMagicTier = 0;
 let modArrowCrafter = false;
 let modDelicateManufacturing = false;
+let modGuardianTrowel = false;
+let modGuardianMallet = false;
+let modGuardianLamp = false;
+let modGuardianChisel = false;
+let modGuardianBrewspoon = false;
 let modSellSpeed: Speed = 'instant';
 let modBuySpeed: Speed = 'instant';
 let sortMode: 'xp' | 'gold' = 'xp';
@@ -185,13 +238,16 @@ const _calcSkillMods: Record<string, any> = (() => {
 })();
 const _defaultCalcMods = () => ({
   modTool: 0, modGearPieces: 0, modJewelry: [0, 0, 0, 0], modCapeTier: 0,
-  modGatherers: false, modHousing: 0, modPlayerHousing: 0,
+  modGatherers: false, modPotionTrickery: false, modHousing: 0, modPlayerHousing: 0,
   modDailyBoost: 'avg' as const, xpCurrentXp: 0, xpGoalLevel: 120,
   modFishermanTier: 0, modBetterFisherman: false,
+  modMostEfficientFishermanTier: 0, modCookingLevel: 1,
   modLumberjackTier: 0, modBetterLumberjack: false, modConsumable: 0,
   modGloves: false, modPowerForagerTier: 0, modFarmingTrickeryTier: 0,
   modPlankBargainTier: 0, modSmeltingMagicTier: 0,
   modArrowCrafter: false, modDelicateManufacturing: false,
+  modGuardianTrowel: false, modGuardianMallet: false, modGuardianLamp: false,
+  modGuardianChisel: false, modGuardianBrewspoon: false,
   modSellSpeed: 'instant' as Speed, modBuySpeed: 'instant' as Speed,
 });
 
@@ -200,8 +256,11 @@ $: if (selectedSkill) {
   modTool = _m.modTool ?? 0;
   modGearPieces = Math.min(_m.modGearPieces ?? 0, gearConfigFor(selectedSkill).max);
   modCapeTier = _m.modCapeTier ?? 0; modGatherers = _m.modGatherers ?? false;
+  modPotionTrickery = _m.modPotionTrickery ?? false;
   modFishermanTier = _m.modFishermanTier ?? 0;
   modBetterFisherman = _m.modBetterFisherman ?? false;
+  modMostEfficientFishermanTier = _m.modMostEfficientFishermanTier ?? 0;
+  modCookingLevel = _m.modCookingLevel ?? 1;
   modLumberjackTier = _m.modLumberjackTier ?? 0;
   modBetterLumberjack = _m.modBetterLumberjack ?? false;
   modConsumable = (_m.modConsumable as 0 | 0.02 | 0.04) ?? 0;
@@ -212,6 +271,11 @@ $: if (selectedSkill) {
   modSmeltingMagicTier = _m.modSmeltingMagicTier ?? 0;
   modArrowCrafter = _m.modArrowCrafter ?? false;
   modDelicateManufacturing = _m.modDelicateManufacturing ?? false;
+  modGuardianTrowel = _m.modGuardianTrowel ?? false;
+  modGuardianMallet = _m.modGuardianMallet ?? false;
+  modGuardianLamp = _m.modGuardianLamp ?? false;
+  modGuardianChisel = _m.modGuardianChisel ?? false;
+  modGuardianBrewspoon = _m.modGuardianBrewspoon ?? false;
   modSellSpeed = _m.modSellSpeed === 'slow' ? 'slow' : 'instant';
   modBuySpeed = _m.modBuySpeed === 'slow' ? 'slow' : 'instant';
   const _j: number[] = _m.modJewelry ?? [0, 0, 0, 0];
@@ -230,11 +294,13 @@ $: if (selectedSkill) {
 $: if (selectedSkill) {
   _calcSkillMods[selectedSkill] = {
     modTool, modGearPieces, modJewelry: [modJewelry0, modJewelry1, modJewelry2, modJewelry3],
-    modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost,
+    modCapeTier, modGatherers, modPotionTrickery, modHousing, modPlayerHousing, modDailyBoost,
     xpCurrentXp, xpGoalLevel, modFishermanTier, modBetterFisherman,
+    modMostEfficientFishermanTier, modCookingLevel,
     modLumberjackTier, modBetterLumberjack, modConsumable,
     modGloves, modPowerForagerTier, modFarmingTrickeryTier, modPlankBargainTier,
     modSmeltingMagicTier, modArrowCrafter, modDelicateManufacturing,
+    modGuardianTrowel, modGuardianMallet, modGuardianLamp, modGuardianChisel, modGuardianBrewspoon,
     modSellSpeed, modBuySpeed,
   };
   try { localStorage.setItem(_CALC_MODS_KEY, JSON.stringify(_calcSkillMods)); } catch {}
@@ -301,7 +367,8 @@ onMount(async () => {
 });
 
 function calcTaskTime(task: Task): number {
-  const totalSpeedBoost = modGearPieces * 0.02 + modJewelry0 + modJewelry1 + modJewelry2 + modJewelry3 + modTool + modCapeTier;
+  const guardianTrowelBoost = (task.skill === 'Farming' && modGuardianTrowel) ? 0.05 : 0;
+  const totalSpeedBoost = modGearPieces * 0.02 + modJewelry0 + modJewelry1 + modJewelry2 + modJewelry3 + modTool + modCapeTier + guardianTrowelBoost;
   const gathererBoost = (modGatherers && GATHERING_SKILLS.includes(task.skill)) ? 0.05 : 0;
   return Math.max(task.baseTime * (1 - gathererBoost) * (1 - totalSpeedBoost), 100) / 1000;
 }
@@ -312,7 +379,9 @@ function calcXp(task: Task) {
   const fishermanXpMult = (selectedSkill === 'Fishing' && modBetterFisherman && modFishermanTier > 0) ? 1 + modFishermanTier * 0.25 : 1;
   const lumberjackXpMult = (selectedSkill === 'Woodcutting' && modBetterLumberjack && modLumberjackTier > 0) ? 1 + modLumberjackTier * 0.25 : 1;
   const consumableMult = 1 + modConsumable;
-  const xpPerAction = task.exp * (1 + modHousing + modPlayerHousing) * (1 + dailyBonus) * fishermanXpMult * lumberjackXpMult * consumableMult;
+  const chiselXpMult = (task.skill === 'Crafting' && modGuardianChisel && CHISEL_GEM_TASKS.has(task.name)) ? 1.10 : 1;
+  const lampBonusXp = (task.skill === 'Mining' && modGuardianLamp && LAMP_ORE_TASKS.has(task.name)) ? 0.20 * LAMP_COAL_EXP : 0;
+  const xpPerAction = task.exp * (1 + modHousing + modPlayerHousing) * (1 + dailyBonus) * fishermanXpMult * lumberjackXpMult * consumableMult * chiselXpMult + lampBonusXp;
   const xpPerHr = xpPerAction * actionsPerHr;
   const goalXp = xpGoalLevel >= 1 && xpGoalLevel <= 120 ? XP_TABLE[Math.max(1, xpGoalLevel) - 1] : null;
   const xpNeeded = goalXp !== null ? Math.max(goalXp - xpCurrentXp, 0) : null;
@@ -334,10 +403,29 @@ function calcProfit(task: Task, cache: typeof $priceCache): { profitPerHr: numbe
   const smeltingSaveMult     = (task.skill === 'Smithing'   && modSmeltingMagicTier > 0 && task.name.endsWith('_bar') && task.name !== 'astronomical_bar' && task.name !== 'otherworldly_bar')    ? 1 - modSmeltingMagicTier  : 1;
   const arrowMult            = (task.skill === 'Crafting'   && modArrowCrafter)     ? 1.10 : 1;
   const delicateSaveMult     = (task.skill === 'Crafting'   && modDelicateManufacturing) ? 0.80 : 1;
+  const brewspoonSaveMult    = (task.skill === 'Brewing'    && modGuardianBrewspoon) ? 0.90 : 1;
   const GOLD_ID = 19;
   let outputValue = 0;
   if (task.itemReward !== -1) {
-    outputValue = sellPrice(task.itemReward) * task.itemAmount * actionsPerHr * glovesMult * fishermanMult * lumberjackMult * powerForagerMult * arrowMult;
+    const baseQty = task.itemAmount * actionsPerHr * glovesMult * fishermanMult * lumberjackMult * powerForagerMult * arrowMult;
+    const fishCook = task.skill === 'Fishing' ? FISH_COOK_MAP[task.name] : undefined;
+    const cookChance = (fishCook && modMostEfficientFishermanTier > 0 && modCookingLevel >= fishCook.level) ? modMostEfficientFishermanTier : 0;
+    outputValue = cookChance > 0 && fishCook
+      ? baseQty * ((1 - cookChance) * sellPrice(task.itemReward) + cookChance * sellPrice(fishCook.cookedId))
+      : baseQty * sellPrice(task.itemReward);
+    if (modPotionTrickery && GATHERING_SKILLS.includes(task.skill)) {
+      outputValue += baseQty * 0.15 * sellPrice(task.itemReward);
+    }
+    if (task.skill === 'Woodcutting' && modGuardianMallet) {
+      const plank = MALLET_PLANK_MAP[task.name];
+      if (plank) {
+        const chance = 0.10 / (plank.chanceDivisor ?? 1);
+        outputValue += actionsPerHr * chance * sellPrice(plank.plankId);
+      }
+    }
+    if (task.skill === 'Mining' && modGuardianLamp && LAMP_ORE_TASKS.has(task.name)) {
+      outputValue += actionsPerHr * 0.20 * sellPrice(LAMP_COAL_ITEM_ID);
+    }
   } else if (task.loot && task.loot.length > 0) {
     let successChance = task.baseSuccessChance ?? 0;
     if (task.skillAdvantages && task.skillAdvantages.length > 0 && lastImportedProfile?.skillExperiences) {
@@ -355,15 +443,23 @@ function calcProfit(task: Task, cache: typeof $priceCache): { profitPerHr: numbe
     }, 0);
   }
   const inputCost = task.costs.reduce((s, c) => s + buyPrice(c.Item) * c.Amount * actionsPerHr, 0)
-    * farmingSaveMult * plankSaveMult * smeltingSaveMult * delicateSaveMult;
+    * farmingSaveMult * plankSaveMult * smeltingSaveMult * delicateSaveMult * brewspoonSaveMult;
   const hasData = (task.itemReward !== -1 && sellPrice(task.itemReward) > 0)
                || task.costs.some(c => buyPrice(c.Item) > 0)
                || (task.loot != null && task.loot.some(d => d.itemId === GOLD_ID || sellPrice(d.itemId) > 0));
   return { profitPerHr: outputValue - inputCost, outputValue, inputCost, hasData };
 }
 
+function calcCookingBonus(task: Task): number {
+  if (task.skill !== 'Fishing' || modMostEfficientFishermanTier <= 0) return 0;
+  const fishCook = FISH_COOK_MAP[task.name];
+  if (!fishCook || modCookingLevel < fishCook.level) return 0;
+  const actionsPerHr = 3600 / calcTaskTime(task);
+  return actionsPerHr * modMostEfficientFishermanTier * fishCook.exp;
+}
+
 $: xpTasks = (() => {
-  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp, xpCurrentLevel, modFishermanTier, modBetterFisherman, modLumberjackTier, modBetterLumberjack, modConsumable, modGloves, modPowerForagerTier, modFarmingTrickeryTier, modPlankBargainTier, modSmeltingMagicTier, modArrowCrafter, modDelicateManufacturing, modSellSpeed, modBuySpeed, filterHideLocked, filterHideUnrealistic, filterHideInputRequired, filterHideUnprofitable, filterHideNoMarketData, sortMode, $priceCache];
+  const _ = [modTool, modGearPieces, modJewelry0, modJewelry1, modJewelry2, modJewelry3, modCapeTier, modGatherers, modPotionTrickery, modHousing, modPlayerHousing, modDailyBoost, xpGoalLevel, xpCurrentXp, xpCurrentLevel, modFishermanTier, modBetterFisherman, modMostEfficientFishermanTier, modCookingLevel, modLumberjackTier, modBetterLumberjack, modConsumable, modGloves, modPowerForagerTier, modFarmingTrickeryTier, modPlankBargainTier, modSmeltingMagicTier, modArrowCrafter, modDelicateManufacturing, modGuardianTrowel, modGuardianMallet, modGuardianLamp, modGuardianChisel, modGuardianBrewspoon, modSellSpeed, modBuySpeed, filterHideLocked, filterHideUnrealistic, filterHideInputRequired, filterHideUnprofitable, filterHideNoMarketData, sortMode, $priceCache];
   const cache = $priceCache;
   return $profitTasks
     .filter(t => t.skill === selectedSkill)
@@ -463,6 +559,10 @@ const _SKILL_TOOL: Record<string, string> = {
   plundering: 'lockpicks', brewing: 'philosopher_stone', mining: 'pickaxe',
   farming: 'rake', carpentry: 'saw', foraging: 'secateurs', invocation: 'brush',
 };
+const _GUARDIAN_TOOL_NAMES: Record<string, string> = {
+  farming: 'guardians_trowel', woodcutting: 'guardians_mallet', mining: 'guardians_lamp',
+  crafting: 'guardians_chisel', brewing: 'guardians_brewspoon',
+};
 
 function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?: ClanProfile | null) {
   if (importXp) {
@@ -472,7 +572,9 @@ function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?:
   if (importUpgrades) {
     const upgs = profile.upgrades ?? {};
     modFishermanTier = FISHERMAN_TIERS[Math.min(upgs['theFisherman'] ?? 0, 5)]?.value ?? 0;
-    modBetterFisherman = (upgs['mostEfficientFisherman'] ?? 0) > 0;
+    modBetterFisherman = (upgs['betterFisherman'] ?? 0) > 0;
+    modMostEfficientFishermanTier = MOST_EFFICIENT_FISHERMAN_TIERS[Math.min(upgs['mostEfficientFisherman'] ?? 0, 5)]?.value ?? 0;
+    modCookingLevel = xpToLevel(profile.skillExperiences?.['cooking'] ?? 0);
     modLumberjackTier = LUMBERJACK_TIERS[Math.min(upgs['theLumberjack'] ?? 0, 5)]?.value ?? 0;
     modBetterLumberjack = (upgs['betterLumberjack'] ?? 0) > 0;
     modPlayerHousing = PLAYER_HOUSING_TIERS[Math.min(upgs['housing'] ?? 0, 5)]?.value ?? 0;
@@ -491,6 +593,8 @@ function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?:
   if (importEquipment) {
     modTool = 0; modGearPieces = 0; modCapeTier = 0; modGloves = false; modConsumable = 0;
     modJewelry0 = 0; modJewelry1 = 0; modJewelry2 = 0; modJewelry3 = 0;
+    modGuardianTrowel = false; modGuardianMallet = false; modGuardianLamp = false;
+    modGuardianChisel = false; modGuardianBrewspoon = false;
     const rawBoost = profile.enchantmentBoosts?.[skillLower] ?? 0;
     const totalJewelryPct = rawBoost > 1 ? rawBoost / 100 : rawBoost;
     const jSlots = [0, 0, 0, 0];
@@ -542,6 +646,14 @@ function _applyProfile(profile: PlayerProfile, skillLower: string, clanProfile?:
         if (!eq || eq.skillBoostPct === 0) return false;
         return detectedSkillId !== null ? eq.skillBoostSkill === detectedSkillId : cleanName(id).includes(skillLower);
       };
+      const guardianName = _GUARDIAN_TOOL_NAMES[skillLower];
+      if (guardianName && Object.values(equip).some(id => cleanName(id) === guardianName)) {
+        if (skillLower === 'farming') modGuardianTrowel = true;
+        else if (skillLower === 'woodcutting') modGuardianMallet = true;
+        else if (skillLower === 'mining') modGuardianLamp = true;
+        else if (skillLower === 'crafting') modGuardianChisel = true;
+        else if (skillLower === 'brewing') modGuardianBrewspoon = true;
+      }
       const capeId = equip['cape'];
       if (capeId) {
         const n = cleanName(capeId);
@@ -570,6 +682,7 @@ function doImport(profile: PlayerProfile, clanProfile: ClanProfile | null = null
   if (importUpgrades) {
     if (modFishermanTier > 0) filled.add('fisherman');
     if (modBetterFisherman) filled.add('betterFisherman');
+    if (modMostEfficientFishermanTier > 0) { filled.add('mostEfficientFisherman'); filled.add('cookingLevel'); }
     if (modLumberjackTier > 0) filled.add('lumberjack');
     if (modBetterLumberjack) filled.add('betterLumberjack');
     if (modPlayerHousing > 0) filled.add('playerHousing');
@@ -591,6 +704,11 @@ function doImport(profile: PlayerProfile, clanProfile: ClanProfile | null = null
     if (modJewelry2 > 0) filled.add('jewelry2');
     if (modJewelry3 > 0) filled.add('jewelry3');
     if (modCapeTier > 0) filled.add('cape');
+    if (modGuardianTrowel) filled.add('guardianTrowel');
+    if (modGuardianMallet) filled.add('guardianMallet');
+    if (modGuardianLamp) filled.add('guardianLamp');
+    if (modGuardianChisel) filled.add('guardianChisel');
+    if (modGuardianBrewspoon) filled.add('guardianBrewspoon');
   }
   lastImportedProfile = profile;
   lastImportedClanProfile = clanProfile;
@@ -679,6 +797,48 @@ async function doImportFromClient(client: ClientCard) {
         <CustomSelect autofill={importFilledFields.has('tool')} bind:value={modTool} options={TOOL_TIERS} />
       </div>
 
+      {#if selectedSkill === 'Farming'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('guardianTrowel')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Raid tool (0.1% drop from Guardians of the Citadel). Gives a flat 5% Farming skill boost (reduces action time), stacking with tool/gear/cape/jewelry bonuses.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Guardian's Trowel</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGuardianTrowel} on:click={() => modGuardianTrowel = false}>No</button>
+            <button class="boost-btn" class:active={modGuardianTrowel} on:click={() => modGuardianTrowel = true}>Yes</button>
+          </div>
+        </div>
+      {:else if selectedSkill === 'Woodcutting'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('guardianMallet')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Raid tool (0.1% drop from Guardians of the Citadel). 10% chance to also receive a plank on top of the log, with no Carpentry XP. Ignis logs only proc at 1/3 rate since heartwood needs 3 logs.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Guardian's Mallet</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGuardianMallet} on:click={() => modGuardianMallet = false}>No</button>
+            <button class="boost-btn" class:active={modGuardianMallet} on:click={() => modGuardianMallet = true}>Yes</button>
+          </div>
+        </div>
+      {:else if selectedSkill === 'Mining'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('guardianLamp')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Raid tool (0.1% drop from Guardians of the Citadel). While mining Gold, Platinum, Meteorite, Diamond, or Titanium ore, 20% chance to also receive a Coal ore and its Mining XP.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Guardian's Lamp</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGuardianLamp} on:click={() => modGuardianLamp = false}>No</button>
+            <button class="boost-btn" class:active={modGuardianLamp} on:click={() => modGuardianLamp = true}>Yes</button>
+          </div>
+        </div>
+      {:else if selectedSkill === 'Crafting'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('guardianChisel')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Raid tool (0.1% drop from Guardians of the Citadel). Grants 10% more XP from gemstone-crafting tasks (weapon-making, otherworldly item).')} on:mousemove={moveTip} on:mouseleave={hideTip}>Guardian's Chisel</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGuardianChisel} on:click={() => modGuardianChisel = false}>No</button>
+            <button class="boost-btn" class:active={modGuardianChisel} on:click={() => modGuardianChisel = true}>Yes</button>
+          </div>
+        </div>
+      {:else if selectedSkill === 'Brewing'}
+        <div class="mod-row" class:row-auto={importFilledFields.has('guardianBrewspoon')}>
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, 'Raid tool (0.1% drop from Guardians of the Citadel). Uses 10% less ingredients when brewing potions.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Guardian's Brewspoon</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modGuardianBrewspoon} on:click={() => modGuardianBrewspoon = false}>No</button>
+            <button class="boost-btn" class:active={modGuardianBrewspoon} on:click={() => modGuardianBrewspoon = true}>Yes</button>
+          </div>
+        </div>
+      {/if}
+
       {#if gearPiecesMax > 0}
         <div class="mod-row">
           <span class="mod-label tip-label" on:mouseenter={e => showTip(e, `Skill-specific gear pieces worn. Each piece reduces task time by 2%.${gearPiecesMax === 4 ? ' This skill has 4 pieces (includes boots).' : ''}`)} on:mousemove={moveTip} on:mouseleave={hideTip}>Gear pieces</span>
@@ -709,6 +869,14 @@ async function doImportFromClient(client: ClientCard) {
             <button class="boost-btn" class:active={modGatherers} on:click={() => modGatherers = true}>Yes</button>
           </div>
         </div>
+
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Brewed potion. 15% chance per item gathered to also receive that item's sell price in gold, on top of the item itself. Scales with extra-yield upgrades (Fisherman/Lumberjack/Power Forager) but not with Guardian's Mallet/Lamp bonus items.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Potion of Trickery</span>
+          <div class="boost-btns">
+            <button class="boost-btn" class:active={!modPotionTrickery} on:click={() => modPotionTrickery = false}>No</button>
+            <button class="boost-btn" class:active={modPotionTrickery} on:click={() => modPotionTrickery = true}>Yes</button>
+          </div>
+        </div>
       {/if}
 
       <div class="mod-row">
@@ -733,6 +901,17 @@ async function doImportFromClient(client: ClientCard) {
               <button class="boost-btn" class:active={!modBetterFisherman} on:click={() => modBetterFisherman = false}>No</button>
               <button class="boost-btn" class:active={modBetterFisherman} on:click={() => modBetterFisherman = true}>Yes</button>
             </div>
+          </div>
+        {/if}
+
+        <div class="mod-row">
+          <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Market upgrade. Chance to auto-cook each fish you catch into its cooked form, giving Cooking XP instead of the raw fish. Doesn't stack across tiers — only the highest tier's chance applies. Requires your Cooking level to meet that fish's cooking level requirement.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Most Efficient Fisherman</span>
+          <CustomSelect autofill={importFilledFields.has('mostEfficientFisherman')} bind:value={modMostEfficientFishermanTier} options={MOST_EFFICIENT_FISHERMAN_TIERS} />
+        </div>
+        {#if modMostEfficientFishermanTier > 0}
+          <div class="mod-row" class:row-auto={importFilledFields.has('cookingLevel')}>
+            <span class="mod-label tip-label" on:mouseenter={e => showTip(e, "Your Cooking level. Fish above your Cooking level can't be auto-cooked by Most Efficient Fisherman.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Cooking level</span>
+            <input class="select" class:autofill={importFilledFields.has('cookingLevel')} type="number" min="1" max="120" bind:value={modCookingLevel} />
           </div>
         {/if}
       {/if}
@@ -881,6 +1060,7 @@ async function doImportFromClient(client: ClientCard) {
       {#each xpTasks as task}
         {@const x = calcXp(task)}
         {@const g = calcProfit(task, $priceCache)}
+        {@const cookBonus = calcCookingBonus(task)}
         <button
           class="task-row"
           class:active={selectedTask?.name === task.name}
@@ -924,6 +1104,9 @@ async function doImportFromClient(client: ClientCard) {
             {/if}
             {#if x.actionsToGoal !== null}
               <div class="detail-row"><span>Actions to goal</span><span>{x.actionsToGoal?.toLocaleString()}</span></div>
+            {/if}
+            {#if cookBonus > 0}
+              <div class="detail-row"><span>Bonus Cooking XP/hr</span><span class="pos">+{formatGold(cookBonus)} xp</span></div>
             {/if}
             {#if g.hasData}
               <div class="detail-row detail-divider"></div>

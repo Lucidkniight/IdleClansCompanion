@@ -79,6 +79,14 @@ function hideWikiLoadingOverlay() {
 
 function appWidth() { return Math.round(300 * zoomFactor); }
 
+// Manual escape hatch for the handful of multi-monitor setups (mixed DPI scaling
+// between monitors is the prime suspect) where the auto-computed docked position
+// lands nowhere near the real game window's monitor. User-set via Settings; added
+// on top of the normal computed position rather than replacing it, so 0,0 is a
+// no-op and matches today's behaviour exactly.
+let dockOffsetX = 0;
+let dockOffsetY = 0;
+
 // Windows fires 'move' once per pixel of mouse movement during a drag — throttle
 // so we're not making a synchronous native setBounds() call on every single tick.
 function throttle(fn: () => void, ms: number) {
@@ -328,7 +336,7 @@ function computeDockedBounds() {
   const availableWidth = display.workArea.width - aw;
   const heightBasedWidth = Math.round(h * (16 / 9));
   const width = Math.min(availableWidth, heightBasedWidth);
-  return { x: x + aw, y, width, height: h };
+  return { x: x + aw + dockOffsetX, y: y + dockOffsetY, width, height: h };
 }
 
 function snapActiveWindow(bringToTop = false) {
@@ -432,4 +440,12 @@ ipcMain.handle('set-zoom-factor', (_event, factor: number) => {
   mainWindow.webContents.setZoomFactor(zoomFactor);
   const [, h] = mainWindow.getSize();
   mainWindow.setSize(appWidth(), h);
+});
+
+ipcMain.handle('set-dock-offset', (_event, x: number, y: number) => {
+  dockOffsetX = Number.isFinite(x) ? Math.round(x) : 0;
+  dockOffsetY = Number.isFinite(y) ? Math.round(y) : 0;
+  // Live-reposition immediately, same as an offset-free drag would.
+  snapActiveWindow(false);
+  snapWikiWindow(false);
 });

@@ -8,9 +8,15 @@
 </script>
 
 <script lang="ts">
+import { onMount } from 'svelte';
 import { allItems, priceCache, lastPriceRefresh, priceRefreshCount, formatItemName, formatGold, toolNavigation, apiFetch, priceAlerts, addPriceAlert, removePriceAlert, checkPriceAlerts, type MarketItem, type PriceAlert } from '../lib/store';
 import { track } from '../lib/analytics';
 import DevPanel from '../lib/DevPanel.svelte';
+
+interface VolumeEntry {
+  itemId: number;
+  volume: number;
+}
 
 interface ComprehensivePrice {
   itemId: number;
@@ -61,6 +67,26 @@ let hoverX = 0;
 let alertField: 'sell' | 'buy' = 'sell';
 let alertDirection: 'below' | 'above' = 'below';
 let alertThreshold = 0;
+
+let mostTraded: VolumeEntry[] = [];
+let mostTradedLoading = false;
+let mostTradedError = false;
+
+async function loadMostTraded() {
+  mostTradedLoading = true;
+  mostTradedError = false;
+  try {
+    const res = await apiFetch('https://query.idleclans.com/api/PlayerMarket/items/volume/history?period=1d&limit=10');
+    if (!res.ok) throw new Error();
+    mostTraded = await res.json();
+  } catch {
+    mostTradedError = true;
+  } finally {
+    mostTradedLoading = false;
+  }
+}
+
+onMount(() => { loadMostTraded(); });
 
 
 $: isUntradeable = marketData !== null &&
@@ -265,6 +291,7 @@ $: {
   <div class="dev-row"><span class="dev-key">Bulk API</span><span class="dev-val">/PlayerMarket/items/prices/latest (~5m cache)</span></div>
   <div class="dev-row"><span class="dev-key">Live API</span><span class="dev-val">/PlayerMarket/items/prices/latest/comprehensive/{'{id}'}</span></div>
   <div class="dev-row"><span class="dev-key">History API</span><span class="dev-val">/PlayerMarket/items/prices/history/{'{id}'}[?period=X]</span></div>
+  <div class="dev-row"><span class="dev-key">Volume API</span><span class="dev-val">/PlayerMarket/items/volume/history?period=1d&amp;limit=10 · {mostTraded.length} loaded</span></div>
 </DevPanel>
 
 <div class="market-search-wrap">
@@ -304,6 +331,29 @@ $: {
   <div class="market-status">Loading…</div>
 {:else if marketError}
   <div class="market-status error">Could not load market data</div>
+{:else if marketSearch.trim().length === 0}
+  <div class="most-traded-section">
+    <div class="market-section-label">Most Traded Today</div>
+    {#if mostTradedLoading}
+      <div class="market-status">Loading…</div>
+    {:else if mostTradedError}
+      <div class="market-status error">Could not load most traded items</div>
+    {:else if mostTraded.length > 0}
+      <div class="most-traded-list">
+        {#each mostTraded as entry, i (entry.itemId)}
+          {@const item = $allItems.find(it => it.id === entry.itemId)}
+          {#if item}
+            <button class="most-traded-row" on:click={() => selectMarketItem(item)}>
+              <span class="mt-rank">{i + 1}</span>
+              <img class="mt-icon" src="./itemicons/{item.name}.png" alt="" on:error={(e) => { (e.target as HTMLImageElement).src = './image_placeholder.png'; }} />
+              <span class="mt-name">{formatItemName(item.name)}</span>
+              <span class="mt-volume">{Math.round(entry.volume).toLocaleString()}</span>
+            </button>
+          {/if}
+        {/each}
+      </div>
+    {/if}
+  </div>
 {:else if marketData}
   <div class="item-info-row">
     <div class="item-header">
@@ -749,4 +799,25 @@ $: {
   }
   .period-tab.active { border-color: var(--accent-md); color: var(--accent); }
   .period-tab:hover:not(.active) { color: var(--text-sub); }
+
+  .most-traded-section { margin-top: 2px; }
+  .most-traded-list { display: flex; flex-direction: column; gap: 3px; }
+
+  .most-traded-row {
+    display: flex; align-items: center; gap: 7px; width: 100%;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 8px; cursor: pointer; text-align: left;
+    font-family: 'Nunito', sans-serif; transition: border-color 0.1s, background 0.1s;
+  }
+  .most-traded-row:hover { border-color: var(--accent-md); background: var(--bg-raised); }
+
+  .mt-rank {
+    font-size: 10px; font-weight: 700; color: var(--text-faint); width: 14px; flex-shrink: 0;
+  }
+  .mt-icon { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+  .mt-name {
+    flex: 1; font-size: 11px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
+  .mt-volume { font-size: 10px; font-weight: 700; color: var(--accent); flex-shrink: 0; }
 </style>

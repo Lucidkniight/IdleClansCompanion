@@ -16,5 +16,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browseExe: () => ipcRenderer.invoke('browse-exe'),
   launchGameClients: (exePath: string, count: number) => ipcRenderer.invoke('launch-game-clients', exePath, count),
   setZoomFactor: (factor: number) => ipcRenderer.invoke('set-zoom-factor', factor),
+  setDockOffset: (x: number, y: number) => ipcRenderer.invoke('set-dock-offset', x, y),
 });
 

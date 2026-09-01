@@ -171,7 +171,7 @@ interface WipeCategory {
 }
 
 const WIPE_CATS: WipeCategory[] = [
-  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out','s-last-seen-version','s-wiki-in-app'] },
+  { id: 'settings',  label: 'Settings',        desc: 'Theme, sounds, FPS, always-on-top, zoom, launcher',             keys: ['s-theme','s-aot','s-zoom','s-prev-fps','s-alert-volume','s-alert-sound','s-game-exe','s-launch-count','s-dev-mode','s-api-debug','s-analytics-opt-out','s-last-seen-version','s-wiki-in-app','s-dock-offset-x','s-dock-offset-y'] },
   { id: 'alerts',    label: 'Alerts',           desc: 'Price, chat word, and news alert rules and triggered notification history', keys: ['icc-price-alerts','icc-triggered-alerts','icc-chat-alerts','icc-chat-triggered','icc-news-triggered'] },
   { id: 'tracker',   label: 'Progress Tracker', desc: 'Tracked players and all XP snapshot history',                   keys: ['icc-tracker-players'], extra: deleteAllSnapshotData },
   { id: 'combat',    label: 'Combat Loadouts',  desc: 'Saved gear loadouts from the Combat Calculator library',        keys: ['icc-combat-saves'] },
@@ -358,6 +358,8 @@ let settingPreviewFpsIdx = (() => { const i = FPS_OPTIONS.indexOf(_storedFps); r
 let settingPreviewFps = FPS_OPTIONS[settingPreviewFpsIdx];
 let settingTheme       = (localStorage.getItem('s-theme') ?? 'dark') as Theme;
 let settingApiDebug    = localStorage.getItem('s-api-debug') === 'true';
+let settingDockOffsetX = parseInt(localStorage.getItem('s-dock-offset-x') ?? '0') || 0;
+let settingDockOffsetY = parseInt(localStorage.getItem('s-dock-offset-y') ?? '0') || 0;
 
 applyTheme(settingTheme);
 
@@ -368,6 +370,11 @@ $: {
 $: {
   localStorage.setItem('s-aot', String(settingAlwaysOnTop));
   (window as any).electronAPI.setAlwaysOnTop(settingAlwaysOnTop);
+}
+$: {
+  localStorage.setItem('s-dock-offset-x', String(settingDockOffsetX));
+  localStorage.setItem('s-dock-offset-y', String(settingDockOffsetY));
+  (window as any).electronAPI.setDockOffset(settingDockOffsetX, settingDockOffsetY);
 }
 $: localStorage.setItem('s-api-debug', String(settingApiDebug));
 $: localStorage.setItem('s-wiki-in-app', String(settingWikiInApp));
@@ -707,6 +714,20 @@ onDestroy(() => {
               <button class="stepper-btn" on:click={() => settingLaunchCount = Math.max(1, settingLaunchCount - 1)}>−</button>
               <span class="stepper-val">{settingLaunchCount}</span>
               <button class="stepper-btn" on:click={() => settingLaunchCount = Math.min(8, settingLaunchCount + 1)}>+</button>
+            </div>
+          </div>
+          <div class="settings-row settings-row-col">
+            <div class="settings-row-top">
+              <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, "Nudges where the docked game window is positioned, relative to the normal auto-computed spot. Only needed if the game window lands in the wrong place — most often on multi-monitor setups with mismatched display scaling. Leave at 0, 0 unless you're seeing that issue.")} on:mousemove={moveTip} on:mouseleave={hideTip}>Game window offset</span>
+              {#if settingDockOffsetX !== 0 || settingDockOffsetY !== 0}
+                <button class="preview-sound-btn" on:click={() => { settingDockOffsetX = 0; settingDockOffsetY = 0; }}>Reset</button>
+              {/if}
+            </div>
+            <div class="dock-offset-row">
+              <span class="dock-offset-axis">X</span>
+              <input class="dock-offset-input" type="number" step="1" bind:value={settingDockOffsetX} />
+              <span class="dock-offset-axis">Y</span>
+              <input class="dock-offset-input" type="number" step="1" bind:value={settingDockOffsetY} />
             </div>
           </div>
         {/if}
@@ -1880,6 +1901,16 @@ onDestroy(() => {
     transition: border-color 0.1s;
   }
   .settings-select:focus { border-color: var(--accent-md); }
+
+  .dock-offset-row { display: flex; align-items: center; gap: 6px; }
+  .dock-offset-axis { font-size: 10px; font-weight: 700; color: var(--text-faint); flex-shrink: 0; }
+  .dock-offset-input {
+    flex: 1; width: 0; min-width: 0; background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text); font-size: 11px;
+    padding: 4px 6px; font-family: 'Nunito', sans-serif; outline: none;
+    transition: border-color 0.1s;
+  }
+  .dock-offset-input:focus { border-color: var(--accent-md); }
 
   .preview-sound-btn {
     background: var(--bg-raised); border: 1px solid var(--border);

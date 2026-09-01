@@ -37,5 +37,6 @@ export function installDemoElectronAPI(): void {
     browseExe: async () => ({ path: null, error: null }),
     launchGameClients: async () => {},
     setZoomFactor: async () => {},
+    setDockOffset: async () => {},
   };
 }

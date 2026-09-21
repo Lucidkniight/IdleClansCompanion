@@ -174,6 +174,14 @@ export interface Monster {
   isBoss: boolean;
   bossType: number;
   loot: MonsterLootEntry[];
+  attackStyle: number;          // UsedAttackStyle — 0-4 melee, 5 archery, 6 magic (same convention as EquipmentItem.style)
+  accuracyBonus: number;        // EnemyAccuracyBonus (melee)
+  strengthBonus: number;        // EnemyStrengthBonus (melee)
+  archeryAccuracyBonus: number;
+  archeryStrengthBonus: number;
+  magicAccuracyBonus: number;
+  magicStrengthBonus: number;
+  attackInterval: number;       // EnemyAttackInterval, ms
 }
 
 export interface ApiErrorEntry {
@@ -907,7 +915,9 @@ export async function loadGameConfig() {
     const res = await apiFetch('https://query.idleclans.com/api/Configuration/game-data');
     if (!res.ok) return;
     const text = await res.text();
-    const cleaned = text.replace(/ObjectId\("([^"]+)"\)/g, '"$1"');
+    const cleaned = text
+      .replace(/ObjectId\("([^"]+)"\)/g, '"$1"')
+      .replace(/NumberLong\((-?\d+)\)/g, '$1');
     const data = JSON.parse(cleaned);
 
     if (data?.Items?.Items && Array.isArray(data.Items.Items)) {
@@ -1045,6 +1055,14 @@ export async function loadGameConfig() {
             isBoss: t.IsBoss ?? false,
             bossType: t.BossType ?? 0,
             loot,
+            attackStyle: t.UsedAttackStyle ?? 0,
+            accuracyBonus: t.EnemyAccuracyBonus ?? 0,
+            strengthBonus: t.EnemyStrengthBonus ?? 0,
+            archeryAccuracyBonus: t.EnemyArcheryAccuracyBonus ?? 0,
+            archeryStrengthBonus: t.EnemyArcheryStrengthBonus ?? 0,
+            magicAccuracyBonus: t.EnemyMagicAccuracyBonus ?? 0,
+            magicStrengthBonus: t.EnemyMagicStrengthBonus ?? 0,
+            attackInterval: t.EnemyAttackInterval ?? 0,
           });
         }
       }
@@ -1079,6 +1097,14 @@ export async function loadGameConfig() {
           isBoss: false,
           bossType: c.BossType ?? 1,
           loot,
+          attackStyle: c.UsedAttackStyle ?? 0,
+          accuracyBonus: c.EnemyAccuracyBonus ?? 0,
+          strengthBonus: c.EnemyStrengthBonus ?? 0,
+          archeryAccuracyBonus: c.EnemyArcheryAccuracyBonus ?? 0,
+          archeryStrengthBonus: c.EnemyArcheryStrengthBonus ?? 0,
+          magicAccuracyBonus: c.EnemyMagicAccuracyBonus ?? 0,
+          magicStrengthBonus: c.EnemyMagicStrengthBonus ?? 0,
+          attackInterval: c.EnemyAttackInterval ?? 0,
         });
       }
     }

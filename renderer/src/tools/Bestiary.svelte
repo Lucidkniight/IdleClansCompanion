@@ -188,7 +188,9 @@
       }
       const text = await res.text();
       // Clean MongoDB-extended JSON before parsing
-      const cleaned = text.replace(/ObjectId\("([^"]+)"\)/g, '"$1"');
+      const cleaned = text
+        .replace(/ObjectId\("([^"]+)"\)/g, '"$1"')
+        .replace(/NumberLong\((-?\d+)\)/g, '$1');
       const data = JSON.parse(cleaned);
 
       if (gen !== _generation) return; // stale — discard

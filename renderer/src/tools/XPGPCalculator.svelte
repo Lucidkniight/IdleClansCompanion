@@ -190,6 +190,9 @@ const LAMP_ORE_TASKS = new Set(['gold_ore', 'platinum_ore', 'meteorite_ore', 'di
 const LAMP_COAL_ITEM_ID = 31;
 const LAMP_COAL_EXP = 24;
 const CHISEL_GEM_TASKS = new Set(['refined_weapon', 'great_weapon', 'elite_weapon', 'superior_weapon', 'outstanding_weapon', 'godlike_weapon', 'otherworldly_item']);
+// Delicate Mfg: "Use 20% less flax when crafting non-astronomical fabrics" — the flax-based
+// robe/trousers tasks only, excluding astronomical_robe/astronomical_trousers per the wiki wording.
+const DELICATE_MFG_TASKS = new Set(['magical_robe', 'magical_trousers', 'enchanted_robe', 'enchanted_trousers', 'cursed_robe', 'cursed_trousers']);
 
 type Speed = 'instant' | 'slow';
 
@@ -401,8 +404,8 @@ function calcProfit(task: Task, cache: typeof $priceCache): { profitPerHr: numbe
   const farmingSaveMult      = (task.skill === 'Farming'    && modFarmingTrickeryTier > 0) ? 1 - modFarmingTrickeryTier : 1;
   const plankSaveMult        = (task.skill === 'Carpentry'  && modPlankBargainTier > 0)    ? 1 - modPlankBargainTier   : 1;
   const smeltingSaveMult     = (task.skill === 'Smithing'   && modSmeltingMagicTier > 0 && task.name.endsWith('_bar') && task.name !== 'astronomical_bar' && task.name !== 'otherworldly_bar')    ? 1 - modSmeltingMagicTier  : 1;
-  const arrowMult            = (task.skill === 'Crafting'   && modArrowCrafter)     ? 1.10 : 1;
-  const delicateSaveMult     = (task.skill === 'Crafting'   && modDelicateManufacturing) ? 0.80 : 1;
+  const arrowMult            = (task.skill === 'Crafting'   && modArrowCrafter && task.name.includes('arrow')) ? 1.10 : 1;
+  const delicateSaveMult     = (task.skill === 'Crafting'   && modDelicateManufacturing && DELICATE_MFG_TASKS.has(task.name)) ? 0.80 : 1;
   const brewspoonSaveMult    = (task.skill === 'Brewing'    && modGuardianBrewspoon) ? 0.90 : 1;
   const GOLD_ID = 19;
   let outputValue = 0;

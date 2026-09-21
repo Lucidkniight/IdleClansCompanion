@@ -301,10 +301,16 @@
     else if (activeIdx >= loadouts.length) activeIdx = loadouts.length - 1;
   }
 
-  function setEnchantPct(enchType: EnchantType, raw: string) {
+  // Bonus fields show + edit the EFFECTIVE total (jewelry enchant + Completionist Cape tier
+  // bonus), matching the game's own "Boosts breakdown" screen. The stored `enchants` value
+  // stays jewelry-only underneath — the cape's share is subtracted back out on edit — so the
+  // existing DPS formula (which adds the cape's bonus separately and un-scaled by Ancient
+  // Knowledge, since it isn't an enchantment) needs no changes at all.
+  function setEnchantPct(enchType: EnchantType, raw: string, capeBonus = 0) {
     const v = Math.max(0, Math.min(100, parseFloat(raw) || 0));
+    const stored = Math.max(0, v - capeBonus);
     const updated = [...loadouts];
-    updated[activeIdx] = { ...updated[activeIdx], enchants: { ...updated[activeIdx].enchants, [enchType]: v } };
+    updated[activeIdx] = { ...updated[activeIdx], enchants: { ...updated[activeIdx].enchants, [enchType]: stored } };
     loadouts = updated;
   }
 
@@ -573,6 +579,14 @@
 
   const COMPLETIONIST_CAPE_TIERS: Record<number, number> = { 529: 1, 530: 2, 531: 3, 532: 4 };
 
+  function capeBonusFor(loadout: Loadout | undefined, enchType: EnchantType): number {
+    const capeId = loadout?.equipped['cape'];
+    if (typeof capeId !== 'number' || capeId < 0) return 0;
+    const tier = COMPLETIONIST_CAPE_TIERS[capeId];
+    if (tier === undefined) return 0;
+    return enchType === 'exterminating' ? [0, 6, 12, 18, 24][tier] : [0, 5, 10, 15, 20][tier];
+  }
+
   const WEAKNESS_LABELS: Record<number, string> = {
     1: 'Stab', 2: 'Slash', 3: 'Pound', 4: 'Crush',
     5: 'Arch', 6: 'Magic', 7: 'Varies', 8: 'All',
@@ -680,6 +694,7 @@ function calcAugmented(level: number, bonus: number): number {
     let meleeStr = 0, meleeAcc = 0;
     let archStr  = 0, archAcc  = 0;
     let magStr   = 0, magAcc   = 0;
+    let meleeDef = 0, archDef  = 0, magDef = 0;
     let weakBoostPct = 0;
 
     for (const id of Object.values(eq)) {
@@ -692,6 +707,9 @@ function calcAugmented(level: number, bonus: number): number {
       archAcc  += item.archeryAccuracyBonus;
       magStr   += item.magicStrengthBonus;
       magAcc   += item.magicAccuracyBonus;
+      meleeDef += item.defenceBonus;
+      archDef  += item.archeryDefenceBonus;
+      magDef   += item.magicDefenceBonus;
       weakBoostPct += item.extraBoostAgainstWeak;
     }
 
@@ -714,6 +732,7 @@ function calcAugmented(level: number, bonus: number): number {
     const m = selectedMonster;
     let dps = 0, hitChance = 0, maxHit = 0, minHit = 1;
     let xpPerHour = 0, kph = 0, ttk = 0, avgHit = 0, respawn = 0;
+    let incomingDps = 0, incomingHitChance = 0;
 
     if (m) {
       const isBoss = m.isBoss;
@@ -831,6 +850,39 @@ function calcAugmented(level: number, bonus: number): number {
         avgHit = hitChance * (minHit + maxHit) / 2;
         xpPerHour = dps * 4 * 3600;
       }
+
+      // Survivability (Enemy DPS/Hit%) — disabled for now, not ready to ship.
+      /*
+      // Enemy attacking the player — mirrors the outgoing formula above, but
+      // from the monster's stats/style against the player's level + gear defence.
+      let enemyAccLevel: number, enemyAccBonus: number, enemyStrLevel: number, enemyStrBonus: number;
+      let playerDefBonus: number;
+      if (m.attackStyle === 5) {
+        enemyAccLevel = m.archeryLevel; enemyAccBonus = m.archeryAccuracyBonus;
+        enemyStrLevel = m.archeryLevel; enemyStrBonus = m.archeryStrengthBonus;
+        playerDefBonus = archDef;
+      } else if (m.attackStyle === 6) {
+        enemyAccLevel = m.magicLevel; enemyAccBonus = m.magicAccuracyBonus;
+        enemyStrLevel = m.magicLevel; enemyStrBonus = m.magicStrengthBonus;
+        playerDefBonus = magDef;
+      } else {
+        enemyAccLevel = m.attackLevel; enemyAccBonus = m.accuracyBonus;
+        enemyStrLevel = m.strengthLevel; enemyStrBonus = m.strengthBonus;
+        playerDefBonus = meleeDef;
+      }
+      const defEnchPct = enc.defence * enchantMult;
+      const playerDefBonusF = playerDefBonus * (1 + defEnchPct / 100);
+
+      const augAccEnemy = calcAugmented(enemyAccLevel, enemyAccBonus);
+      const augDefPlayer = calcAugmented(defenceLevel, Math.floor(playerDefBonusF));
+      incomingHitChance = calcHitChance(augAccEnemy, augDefPlayer, 0);
+
+      if (incomingHitChance > 0 && m.attackInterval > 0) {
+        const rawMaxEnemy = Math.floor((13 + enemyStrLevel + enemyStrBonus / 8 + enemyStrLevel * enemyStrBonus / 64) / 10);
+        const incomingAvgHit = incomingHitChance * (1 + rawMaxEnemy) / 2;
+        incomingDps = incomingAvgHit / (m.attackInterval / 1000);
+      }
+      */
     }
 
     let goldPerHour = 0;
@@ -855,7 +907,7 @@ function calcAugmented(level: number, bonus: number): number {
       }
     }
 
-    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn, goldPerHour, marketGoldPerHour, ritualPowerPerHour, keyDrops };
+    return { style, dps, hitChance, maxHit, minHit, interval, xpPerHour, kph, ttk, avgHit, respawn, goldPerHour, marketGoldPerHour, ritualPowerPerHour, keyDrops, incomingDps, incomingHitChance };
   });
 
   onMount(async () => {
@@ -1037,17 +1089,22 @@ function calcAugmented(level: number, bonus: number): number {
         <div class="slot slot-blank" style="grid-row:4;grid-column:2"></div>
       </div>
       <div class="enchant-wrap">
-        <div class="enchant-section-label">Enchants</div>
+        <div
+          class="enchant-section-label"
+          on:mouseenter={(e) => showTooltip(e, 'Bonuses', 'Combined jewelry enchant % plus your Completionist Cape tier bonus (if equipped) — matches the total shown in the game\'s own Boosts Breakdown screen')}
+          on:mousemove={moveTooltip} on:mouseleave={hideTooltip}
+        >Bonuses</div>
         <div class="enchant-row">
           {#each ENCHANT_TYPES as etype}
+            {@const capeBonus = capeBonusFor(loadouts[activeIdx], etype)}
             <div class="enchant-field">
               <span class="enchant-field-label">{ENCHANT_LABELS[etype]}</span>
               <div class="enchant-field-wrap">
                 <input
                   class="enchant-field-input"
                   type="number" min="0" max="100" step="0.5"
-                  value={loadouts[activeIdx]?.enchants[etype] ?? 0}
-                  on:change={e => setEnchantPct(etype, e.currentTarget.value)}
+                  value={(loadouts[activeIdx]?.enchants[etype] ?? 0) + capeBonus}
+                  on:change={e => setEnchantPct(etype, e.currentTarget.value, capeBonus)}
                 />
                 <span class="enchant-field-pct">%</span>
               </div>
@@ -1189,6 +1246,20 @@ function calcAugmented(level: number, bonus: number): number {
             <span class="result-value">{d.respawn > 0 ? d.respawn.toFixed(1) + 's' : '—'}</span>
           </div>
         </div>
+        <!-- Survivability (Enemy DPS/Hit%) — disabled for now, not ready to ship. -->
+        {#if false}
+        <div class="result-profit-section">
+          <span class="result-section-label">Survivability</span>
+          <div class="result-detail-cell" on:mouseenter={(e) => showTooltip(e, 'Enemy DPS', 'Damage Per Second the enemy deals to you — based on its level/gear vs. your Defence level and gear defence bonus')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>
+            <span class="result-label">Enemy DPS</span>
+            <span class="result-value">{d.incomingDps > 0 ? d.incomingDps.toFixed(2) : '—'}</span>
+          </div>
+          <div class="result-detail-cell" on:mouseenter={(e) => showTooltip(e, 'Enemy Hit%', 'Probability the enemy lands a hit on you per attack')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>
+            <span class="result-label">Enemy Hit%</span>
+            <span class="result-value">{d.incomingHitChance > 0 ? (d.incomingHitChance * 100).toFixed(1) + '%' : '—'}</span>
+          </div>
+        </div>
+        {/if}
         {#if selectedDropItemId !== null}
           {@const targetDrop = selectedMonster?.loot.find(l => l.itemId === selectedDropItemId)}
           {#if targetDrop}
@@ -1309,6 +1380,22 @@ function calcAugmented(level: number, bonus: number): number {
                 <td class="rt-val rt-sub">{d.respawn > 0 ? d.respawn.toFixed(1) + 's' : '—'}</td>
               {/each}
             </tr>
+            <!-- Survivability (Enemy DPS/Hit%) — disabled for now, not ready to ship. -->
+            {#if false}
+            <tr class="rt-divider"><td class="rt-divider-cell" colspan={loadouts.length + 1}></td></tr>
+            <tr>
+              <td class="rt-stat" on:mouseenter={(e) => showTooltip(e, 'Enemy DPS', 'Damage Per Second the enemy deals to you — based on its level/gear vs. your Defence level and gear defence bonus')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Enemy DPS</td>
+              {#each allDPS as d}
+                <td class="rt-val">{d.incomingDps > 0 ? d.incomingDps.toFixed(2) : '—'}</td>
+              {/each}
+            </tr>
+            <tr>
+              <td class="rt-stat rt-sub" on:mouseenter={(e) => showTooltip(e, 'Enemy Hit%', 'Probability the enemy lands a hit on you per attack')} on:mousemove={moveTooltip} on:mouseleave={hideTooltip}>Enemy Hit%</td>
+              {#each allDPS as d}
+                <td class="rt-val rt-sub">{d.incomingHitChance > 0 ? (d.incomingHitChance * 100).toFixed(1) + '%' : '—'}</td>
+              {/each}
+            </tr>
+            {/if}
             {#if allDPS.some(d => d.marketGoldPerHour > 0)}
               <tr class="rt-divider"><td class="rt-divider-cell" colspan={loadouts.length + 1}></td></tr>
               <tr>

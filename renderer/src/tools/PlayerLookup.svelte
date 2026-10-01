@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-import { xpToLevel, XP_TABLE, formatGold, formatItemName, createNavListener, clients } from '../lib/store';
+import { xpToLevel, XP_TABLE, formatGold, formatItemName, createNavListener, clients, apiFetch } from '../lib/store';
 import DevPanel from '../lib/DevPanel.svelte';
 
 interface RawProfile {
@@ -73,7 +73,7 @@ async function fetchClanMembers(clanNames: string[]) {
     const clientSet = new Set($clients.map(c => c.playerName?.toLowerCase()).filter(Boolean) as string[]);
     const results = await Promise.all(
       clanNames.map(cn =>
-        fetch(`https://query.idleclans.com/api/Clan/${encodeURIComponent(cn)}/experience`)
+        apiFetch(`https://query.idleclans.com/api/Clan/${encodeURIComponent(cn)}/experience`, undefined, 'high')
           .then(r => r.ok ? r.json() : null)
           .catch(() => null)
       )
@@ -179,8 +179,9 @@ async function lookup() {
   notFound = false;
   profile = null;
   try {
-    const res = await fetch(
-      `https://query.idleclans.com/api/Player/profile/${encodeURIComponent(name)}`
+    const res = await apiFetch(
+      `https://query.idleclans.com/api/Player/profile/${encodeURIComponent(name)}`,
+      undefined, 'high'
     );
     if (res.status === 404) { notFound = true; return; }
     if (!res.ok) throw new Error();

@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-import { formatGold, xpToLevel, fetchProfiles, FETCH_PROFILES_MAX_BATCH, navigate, createNavListener, clients, type ClientCard } from '../lib/store';
+import { formatGold, xpToLevel, fetchProfiles, FETCH_PROFILES_MAX_BATCH, navigate, createNavListener, clients, apiFetch, type ClientCard } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
 import DevPanel from '../lib/DevPanel.svelte';
 
@@ -131,8 +131,9 @@ async function fetchClan() {
   clanName = '';
   cupStandings = [];
   try {
-    const res = await fetch(
-      `https://query.idleclans.com/api/Clan/${encodeURIComponent(name)}/experience`
+    const res = await apiFetch(
+      `https://query.idleclans.com/api/Clan/${encodeURIComponent(name)}/experience`,
+      undefined, 'high'
     );
     if (!res.ok) throw new Error();
     const clanData = await res.json();
@@ -153,7 +154,7 @@ async function fetchClan() {
     const lifetime: PlayerEntry[] = [];
     for (let i = 0; i < usernames.length; i += FETCH_PROFILES_MAX_BATCH) {
       const batch = usernames.slice(i, i + FETCH_PROFILES_MAX_BATCH);
-      const profiles = await fetchProfiles(batch);
+      const profiles = await fetchProfiles(batch, 'high');
       for (const p of profiles) {
         if (p?.skillExperiences) {
           lifetime.push({
@@ -178,7 +179,7 @@ async function fetchClan() {
   (async () => {
     try {
       for (const mode of ['Default', 'Ironman']) {
-        const r = await fetch(`https://query.idleclans.com/api/ClanCup/standings/${encodeURIComponent(name)}?gameMode=${mode}`);
+        const r = await apiFetch(`https://query.idleclans.com/api/ClanCup/standings/${encodeURIComponent(name)}?gameMode=${mode}`, undefined, 'high');
         if (r.ok) {
           const data = await r.json();
           if (Array.isArray(data) && data.length && gen === _cupGen) { cupStandings = data; break; }

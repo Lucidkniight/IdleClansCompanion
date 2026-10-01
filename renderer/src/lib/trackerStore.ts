@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { xpToLevel, isDemoMode, fetchProfiles, FETCH_PROFILES_MAX_BATCH } from './store';
+import { xpToLevel, isDemoMode, fetchProfiles, FETCH_PROFILES_MAX_BATCH, apiFetch } from './store';
 
 export interface TrackedPlayer {
   username: string;
@@ -231,10 +231,12 @@ async function persistSnapshot(username: string, snap: PlayerSnapshot): Promise<
   });
 }
 
+// Only called from user-initiated actions (addTrackedPlayer / forceRefresh) — 'high' priority.
 async function doFetch(username: string): Promise<boolean> {
   try {
-    const res = await fetch(
-      `https://query.idleclans.com/api/Player/profile/${encodeURIComponent(username)}`
+    const res = await apiFetch(
+      `https://query.idleclans.com/api/Player/profile/${encodeURIComponent(username)}`,
+      undefined, 'high'
     );
     if (!res.ok) return false;
     const data = await res.json();

@@ -10,6 +10,7 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { apiFetch } from '../lib/store';
 
   // ── Types ───────────────────────────────────────────────────────────────────
   interface LootEntry {
@@ -181,7 +182,7 @@
     loadError = false;
 
     try {
-      const res = await fetch('https://query.idleclans.com/api/Configuration/game-data');
+      const res = await apiFetch('https://query.idleclans.com/api/Configuration/game-data', undefined, 'high');
       if (!res.ok) {
         if (gen === _generation) { loadError = true; loading = false; }
         return;

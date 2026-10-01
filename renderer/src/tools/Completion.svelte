@@ -9,7 +9,7 @@
 
 <script lang="ts">
 import { onMount } from 'svelte';
-import { clients, xpToLevel, XP_TABLE, formatGold, formatTime, createNavListener, navigate, profitTasks, loadGameConfig, GATHERING_SKILLS, type Task } from '../lib/store';
+import { clients, xpToLevel, XP_TABLE, formatGold, formatTime, createNavListener, navigate, profitTasks, loadGameConfig, GATHERING_SKILLS, apiFetch, type Task } from '../lib/store';
 import CustomSelect from '../lib/CustomSelect.svelte';
 import DevPanel from '../lib/DevPanel.svelte';
 
@@ -148,8 +148,9 @@ async function lookup() {
   username = '';
   manualIdx = null;
   try {
-    const res = await fetch(
-      `https://query.idleclans.com/api/Player/profile/${encodeURIComponent(name)}`
+    const res = await apiFetch(
+      `https://query.idleclans.com/api/Player/profile/${encodeURIComponent(name)}`,
+      undefined, 'high'
     );
     if (res.status === 404) { notFound = true; return; }
     if (!res.ok) throw new Error();

@@ -76,7 +76,7 @@ async function loadMostTraded() {
   mostTradedLoading = true;
   mostTradedError = false;
   try {
-    const res = await apiFetch('https://query.idleclans.com/api/PlayerMarket/items/volume/history?period=1d&limit=10');
+    const res = await apiFetch('https://query.idleclans.com/api/PlayerMarket/items/volume/history?period=1d&limit=10', undefined, 'high');
     if (!res.ok) throw new Error();
     mostTraded = await res.json();
   } catch {
@@ -194,7 +194,7 @@ async function changePeriod(p: Period) {
   historyError = null;
   const suffix = p === '24h' ? '' : `?period=${p}`;
   try {
-    const res = await apiFetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/history/${selectedItemId}${suffix}`);
+    const res = await apiFetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/history/${selectedItemId}${suffix}`, undefined, 'high');
     if (res.ok) {
       const data = await res.json();
       historyCache = { ...historyCache, [p]: data };
@@ -221,11 +221,11 @@ async function selectMarketItem(item: MarketItem) {
   marketError = false;
   historyError = null;
   try {
-    const compRes = await apiFetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/latest/comprehensive/${item.id}`);
+    const compRes = await apiFetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/latest/comprehensive/${item.id}`, undefined, 'high');
     if (!compRes.ok) throw new Error();
     const compData = await compRes.json();
     await new Promise(r => setTimeout(r, 300));
-    const h24 = await apiFetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/history/${item.id}`);
+    const h24 = await apiFetch(`https://query.idleclans.com/api/PlayerMarket/items/prices/history/${item.id}`, undefined, 'high');
     const cache: typeof historyCache = {};
     if (h24.ok) { cache['24h'] = await h24.json(); }
     else { historyError = h24.status; }

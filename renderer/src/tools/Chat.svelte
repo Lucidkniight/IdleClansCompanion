@@ -46,7 +46,7 @@
     if (clanLookupPending) return;
     clanLookupPending = sender;
     try {
-      const profile = await fetchProfile(sender);
+      const profile = await fetchProfile(sender, 'high');
       if (profile?.guildName) navigate('Clan', profile.guildName);
     } finally {
       clanLookupPending = null;

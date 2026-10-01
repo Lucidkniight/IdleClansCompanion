@@ -9,7 +9,7 @@
 
 <script lang="ts">
 import { onMount } from 'svelte';
-import { formatTime, formatGold, navigate } from '../lib/store';
+import { formatTime, formatGold, navigate, apiFetch } from '../lib/store';
 import DevPanel from '../lib/DevPanel.svelte';
 
 const API = 'https://query.idleclans.com';
@@ -154,8 +154,8 @@ async function loadLeaderboard() {
   lbLoading = true; lbError = false;
   try {
     const [overallRes, topRes] = await Promise.all([
-      fetch(`${API}/api/ClanCup/leaderboard/Default/totalPoints?limit=25`),
-      fetch(`${API}/api/ClanCup/top-clans/current?gameMode=Default`),
+      apiFetch(`${API}/api/ClanCup/leaderboard/Default/totalPoints?limit=25`, undefined, 'high'),
+      apiFetch(`${API}/api/ClanCup/top-clans/current?gameMode=Default`, undefined, 'high'),
     ]);
     if (!overallRes.ok || !topRes.ok) throw new Error();
     overallLb = await overallRes.json();
@@ -167,7 +167,7 @@ async function loadLeaderboard() {
 async function loadClan(name: string) {
   clanLoading = true; clanError = false; standings = [];
   try {
-    const res = await fetch(`${API}/api/ClanCup/standings/${encodeURIComponent(name)}?gameMode=Default`);
+    const res = await apiFetch(`${API}/api/ClanCup/standings/${encodeURIComponent(name)}?gameMode=Default`, undefined, 'high');
     if (!res.ok) throw new Error();
     standings = await res.json();
     if (!standings.length) clanError = true;

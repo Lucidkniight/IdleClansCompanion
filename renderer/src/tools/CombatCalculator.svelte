@@ -345,7 +345,7 @@
       upgBountyHunter       = (upgs['upgrade_bounty_hunter']        ?? 0) > 0;
       upgPrinciplesOfCombat = (upgs['upgrade_principles_of_combat'] ?? 0) > 0;
       if (profile.guildName) {
-        const clan = await fetchClanProfile(profile.guildName);
+        const clan = await fetchClanProfile(profile.guildName, 'high');
         if (clan) {
           const ids: number[] = JSON.parse(clan.serializedUpgrades?.length ? clan.serializedUpgrades : '[]');
           upgBullseye        = ids.includes(22);
@@ -390,7 +390,7 @@
     clearTimeout(_refreshTimer);
     _refreshTimer = setTimeout(() => { refreshCooldown = false; }, 30000);
     try {
-      const profile = await fetchProfile(importedPlayerName);
+      const profile = await fetchProfile(importedPlayerName, 'high');
       if (!profile) return;
       await doImport(profile);
     } catch {}
@@ -402,7 +402,7 @@
     importLoading = true;
     importError = '';
     try {
-      const profile = await fetchProfile(n);
+      const profile = await fetchProfile(n, 'high');
       if (!profile) { importError = 'Player not found'; return; }
       await doImport(profile);
     } catch {

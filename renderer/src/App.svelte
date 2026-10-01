@@ -9,7 +9,7 @@
 import { onMount, onDestroy } from 'svelte';
 import {
   type PlayerProfile, type ClientCard, type TriggeredAlert,
-  clients, activeId, previews, updateReady, apiError, apiErrorLog,
+  clients, activeId, previews, updateReady, apiError, apiErrorLog, queueStats,
   scan, focusClient, refreshPreviews, loadGameConfig, refreshPrices,
   toolNavigation, navigate, triggeredAlerts, dismissTriggeredAlert,
   triggeredChatAlerts, dismissTriggeredChatAlert, refreshChat, CHAT_POLL_MS,
@@ -19,6 +19,7 @@ import {
 } from './lib/store';
 import { initAnalytics, setOptOut, track } from './lib/analytics';
 import { deleteAllSnapshotData } from './lib/trackerStore';
+import { getAllApiLogs, clearApiLogs } from './lib/apiLogStore';
 import CustomSelect from './lib/CustomSelect.svelte';
 
 // ── Tool discovery ────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ let activeTab: Tab = 'clients';
 let showSettings = false;
 let showAlerts = false;
 let showApiDetails = false;
+let showQueueList = false;
 let showWipeModal = false;
 
 // ── Feedback ──────────────────────────────────────────────────────────────────
@@ -177,6 +179,7 @@ const WIPE_CATS: WipeCategory[] = [
   { id: 'combat',    label: 'Combat Loadouts',  desc: 'Saved gear loadouts from the Combat Calculator library',        keys: ['icc-combat-saves'] },
   { id: 'notepad',   label: 'Notepad',          desc: 'All saved notes',                                               keys: ['notepad'] },
   { id: 'toolprefs', label: 'Tool Preferences', desc: 'Favourites, client order, calculator modifiers, recent lookups', keys: ['icc-tool-favourites','icc-client-order','icc-calc-mods','icc-profit-mods','icc-completion-mods','icc-lookup-recent','icc-chat-channels','icc-chat-messages','icc-news-notify','icc-news-last-seen','icc-wiki-favourites'] },
+  { id: 'apilog',    label: 'API Call Log',    desc: 'Logged API request history (last 6 hours, used for the Export API Log button)', keys: [], extra: clearApiLogs },
 ];
 let wipeSelected: Set<string> = new Set(WIPE_CATS.map(c => c.id));
 
@@ -202,6 +205,36 @@ function dismissApiError() {
   apiError.set(false);
   apiErrorLog.set([]);
   showApiDetails = false;
+}
+
+let exportingApiLog = false;
+
+async function exportApiLog() {
+  if (exportingApiLog) return;
+  exportingApiLog = true;
+  try {
+    const entries = await getAllApiLogs();
+    const lines: string[] = [];
+    lines.push(`Idle Clans Companion — API call log export`);
+    lines.push(`App version: ${__APP_VERSION__}`);
+    lines.push(`Exported:    ${new Date().toISOString()}`);
+    lines.push(`Entries:     ${entries.length} (retained ~6 hours)`);
+    lines.push('');
+    for (const e of entries) {
+      const time = new Date(e.time).toISOString();
+      const status = e.status ?? 'NETWORK ERROR';
+      lines.push(`${time}  ${e.success ? 'OK  ' : 'FAIL'}  ${status}  ${e.priority.padEnd(4)}  ${e.elapsedMs}ms  ${e.url}${e.note ? `  (${e.note})` : ''}`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `idle-clans-companion-api-log-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    exportingApiLog = false;
+  }
 }
 
 function getModeLogo(mode: string | null): string {
@@ -541,17 +574,47 @@ onDestroy(() => {
     </div>
   {/if}
 
-  {#if $apiError && settingApiDebug}
-    <div class="error-banner">
-      <span>API error detected</span>
-      <div class="error-banner-btns">
-        <button class="dismiss-btn" on:click={() => showApiDetails = !showApiDetails}>
-          {showApiDetails ? 'Hide' : 'Details'}
+  {#if settingApiDebug}
+    <div class="debug-banner" class:has-error={$apiError}>
+      <div class="debug-banner-stats">
+        <span class="debug-stat">Queue <strong>{$queueStats.queued}</strong></span>
+        <span class="debug-stat"><strong>{$queueStats.tokensUsed}/{$queueStats.limit}</strong> per min</span>
+        <button class="dismiss-btn debug-queue-btn" on:click={() => showQueueList = !showQueueList}>
+          {showQueueList ? 'Hide' : 'Queue'}
         </button>
-        <button class="dismiss-btn" on:click={dismissApiError}>Dismiss</button>
       </div>
+      {#if $apiError}
+        <div class="debug-banner-error">
+          <span class="debug-error-chip">
+            Error detected{#if $queueStats.pausedMs > 0} · paused {Math.ceil($queueStats.pausedMs / 1000)}s{/if}
+          </span>
+          <button class="dismiss-btn" on:click={() => showApiDetails = !showApiDetails}>
+            {showApiDetails ? 'Hide' : 'Details'}
+          </button>
+          <button class="dismiss-btn" on:click={dismissApiError}>Dismiss</button>
+        </div>
+      {/if}
     </div>
-    {#if showApiDetails}
+    {#if showQueueList}
+      <div class="queue-list">
+        {#if $queueStats.pausedBy}
+          <div class="queue-pause-cause">
+            All low-priority calls paused {Math.ceil($queueStats.pausedMs / 1000)}s — triggered by <span class="queue-url">{$queueStats.pausedBy}</span>
+          </div>
+        {/if}
+        {#if $queueStats.waiting.length === 0}
+          <div class="queue-entry queue-empty">Queue is empty</div>
+        {:else}
+          {#each $queueStats.waiting as call, i (i)}
+            <div class="queue-entry">
+              <span class="queue-priority" class:queue-priority-high={call.priority === 'high'}>{call.priority}</span>
+              <span class="queue-url">{call.url}</span>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
+    {#if $apiError && showApiDetails}
       <div class="error-details">
         {#if $apiErrorLog.length === 0}
           <div class="error-entry error-empty">No details available</div>
@@ -764,6 +827,10 @@ onDestroy(() => {
           <button class="toggle" class:on={settingApiDebug} on:click={() => settingApiDebug = !settingApiDebug} aria-label="Toggle API debug mode">
             <span class="toggle-thumb"></span>
           </button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label tip-label" role="none" on:mouseenter={e => showTip(e, 'Downloads a text file of every API call made over the last ~6 hours (endpoint, status, timing). Share it if you\'re having connection trouble and want it diagnosed.')} on:mousemove={moveTip} on:mouseleave={hideTip}>Export API log</span>
+          <button class="export-btn" on:click={exportApiLog} disabled={exportingApiLog}>{exportingApiLog ? 'Exporting…' : 'Export…'}</button>
         </div>
         <div class="settings-row">
           <span class="settings-label">Wipe app data</span>
@@ -1489,18 +1556,58 @@ onDestroy(() => {
   }
   .restart-btn:hover { background: #3a5a3a; border-color: #4ade80; }
 
-  .error-banner {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 14px; background: #2a1a1a; border-bottom: 1px solid #4a2a2a;
-    font-size: 12px; color: #e05555; font-weight: 600;
+  .debug-banner {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+    padding: 5px 10px; background: #161c24; border-bottom: 1px solid #2a3540;
+    font-size: 10px; color: #7a94ac; font-family: monospace; transition: border-color 0.15s;
   }
-  .error-banner-btns { display: flex; gap: 6px; align-items: center; }
+  .debug-banner.has-error { border-bottom-color: #4a2a2a; }
+  .debug-banner-stats { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .debug-stat { white-space: nowrap; }
+  .debug-stat strong { color: #9ec4e0; font-weight: 700; }
+  .debug-banner-error { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .debug-error-chip {
+    background: #3a1515; color: #e05555; border: 1px solid #5a2a2a;
+    border-radius: 3px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+    font-family: 'Nunito', sans-serif;
+  }
   .dismiss-btn {
     background: #4a2a2a; border: 1px solid #e0555544; color: #e05555;
-    padding: 3px 10px; border-radius: 4px; font-size: 11px;
-    cursor: pointer; transition: all 0.15s; width: auto;
+    padding: 2px 7px; border-radius: 4px; font-size: 10px; white-space: nowrap;
+    cursor: pointer; transition: all 0.15s; width: auto; flex-shrink: 0;
   }
   .dismiss-btn:hover { background: #5a2a2a; border-color: #e05555; }
+
+  .debug-queue-btn {
+    background: #1f2a36; border: 1px solid #3f7fc244; color: #5a9bd4;
+  }
+  .debug-queue-btn:hover { background: #28374a; border-color: #5a9bd4; }
+
+  .queue-list {
+    background: #12161c; border-bottom: 1px solid #2a3540;
+    max-height: 100vh; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: #2a3540 transparent;
+  }
+  .queue-pause-cause {
+    padding: 6px 10px; border-bottom: 1px solid #22303c;
+    font-size: 11px; color: #e0a855; font-family: 'Nunito', sans-serif; font-weight: 700;
+    word-break: break-all;
+  }
+  .queue-pause-cause .queue-url { color: #c99a5a; font-weight: 400; }
+  .queue-entry {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 5px 10px; border-bottom: 1px solid #1c242c;
+    font-size: 11px; font-family: monospace;
+  }
+  .queue-entry:last-child { border-bottom: none; }
+  .queue-empty { color: #5a7084; font-style: italic; font-family: 'Nunito', sans-serif; }
+  .queue-priority {
+    flex-shrink: 0; text-transform: uppercase;
+    background: #1f2a36; color: #5a9bd4; border: 1px solid #2a3a4a;
+    border-radius: 3px; padding: 0 4px; font-size: 10px; font-weight: bold;
+  }
+  .queue-priority-high { background: #1a2e1a; color: #4ade80; border-color: #3a6a3a; }
+  .queue-url { color: #6a8098; word-break: break-all; }
 
   .error-details {
     background: #1a1010; border-bottom: 1px solid #4a2a2a;
@@ -1508,13 +1615,13 @@ onDestroy(() => {
     scrollbar-width: thin; scrollbar-color: #4a2a2a transparent;
   }
   .error-entry {
-    display: flex; gap: 8px; align-items: flex-start;
-    padding: 5px 14px; border-bottom: 1px solid #261616;
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 6px 14px; border-bottom: 1px solid #261616;
     font-size: 12px; font-family: monospace;
   }
   .error-entry:last-child { border-bottom: none; }
   .error-empty { color: #7a5555; font-style: italic; font-family: 'Nunito', sans-serif; }
-  .error-meta { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
+  .error-meta { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
   .error-time { color: #7a5555; }
   .error-status {
     background: #3a1515; color: #e05555; border: 1px solid #5a2a2a;
@@ -1522,7 +1629,7 @@ onDestroy(() => {
   }
   .error-net { background: #2a1a2e; border-color: #6a3a7a; color: #c060c0; }
   .error-ok  { background: #1a2e1a; border-color: #3a6a3a; color: #4ade80; }
-  .error-url { color: #8a6060; word-break: break-all; }
+  .error-url { color: #8a6060; word-break: break-all; font-size: 11px; }
   .error-label { font-size: 10px; color: #7a5555; font-family: 'Nunito', sans-serif; }
   .error-note  { font-size: 10px; color: #7a5555; font-style: italic; font-family: 'Nunito', sans-serif; }
 
@@ -1730,6 +1837,14 @@ onDestroy(() => {
     cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
   }
   .wipe-btn:hover { background: rgba(224, 85, 85, 0.12); }
+
+  .export-btn {
+    background: none; border: 1px solid var(--accent-md); color: var(--accent);
+    font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 4px;
+    cursor: pointer; font-family: 'Nunito', sans-serif; transition: all 0.15s; width: auto;
+  }
+  .export-btn:hover:not(:disabled) { background: var(--accent-lo); }
+  .export-btn:disabled { opacity: 0.5; cursor: default; }
 
   .modal-overlay {
     position: fixed; inset: 0; z-index: 9998;

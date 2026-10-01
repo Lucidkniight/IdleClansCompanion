@@ -544,9 +544,9 @@ async function refreshImport() {
   clearTimeout(_refreshTimer);
   _refreshTimer = setTimeout(() => { refreshCooldown = false; }, 30000);
   try {
-    const profile = await fetchProfile(importedPlayerName);
+    const profile = await fetchProfile(importedPlayerName, 'high');
     if (!profile) return;
-    const clanProfile = profile.guildName ? await fetchClanProfile(profile.guildName) : null;
+    const clanProfile = profile.guildName ? await fetchClanProfile(profile.guildName, 'high') : null;
     doImport(profile, clanProfile);
   } catch {}
 }
@@ -728,9 +728,9 @@ async function doImportBySearch(name: string) {
   importLoading = true;
   importError = '';
   try {
-    const profile = await fetchProfile(n);
+    const profile = await fetchProfile(n, 'high');
     if (!profile) { importError = 'Player not found'; return; }
-    const clanProfile = profile.guildName ? await fetchClanProfile(profile.guildName) : null;
+    const clanProfile = profile.guildName ? await fetchClanProfile(profile.guildName, 'high') : null;
     doImport(profile, clanProfile);
   } catch {
     importError = 'Failed to load';
@@ -741,7 +741,7 @@ async function doImportBySearch(name: string) {
 
 async function doImportFromClient(client: ClientCard) {
   if (!client.profile) return;
-  const clanProfile = client.profile.guildName ? await fetchClanProfile(client.profile.guildName) : null;
+  const clanProfile = client.profile.guildName ? await fetchClanProfile(client.profile.guildName, 'high') : null;
   doImport(client.profile, clanProfile);
 }
 </script>

@@ -1,4 +1,7 @@
 import { writable, derived, get, type Readable } from 'svelte/store';
+import { idleClansFetch, apiError, apiErrorLog, queueStats, type ApiErrorEntry, type ApiPriority, type QueueStats, type QueuedCall } from './apiQueue';
+export { apiError, apiErrorLog, queueStats };
+export type { ApiErrorEntry, ApiPriority, QueueStats, QueuedCall };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface GameWindow {
@@ -184,14 +187,6 @@ export interface Monster {
   attackInterval: number;       // EnemyAttackInterval, ms
 }
 
-export interface ApiErrorEntry {
-  url: string;
-  status: number | null;
-  time: Date;
-  note?: string;
-  detail?: string;
-}
-
 // ── Constants ─────────────────────────────────────────────────────────────────
 export const XP_TABLE = [
   0,75,151,227,303,380,531,683,836,988,
@@ -259,8 +254,6 @@ export const activeId     = writable<number | null>(null);
 export const previews     = writable<Record<number, string>>({});
 export const scanning     = writable<boolean>(false);
 export const updateReady  = writable<boolean>(false);
-export const apiError     = writable<boolean>(false);
-export const apiErrorLog  = writable<ApiErrorEntry[]>([]);
 export const allItems     = writable<MarketItem[]>([]);
 export const priceCache        = writable<Record<number, PriceData>>({});
 export const lastPriceRefresh  = writable<Date | null>(null);
@@ -385,7 +378,7 @@ export interface ChatMessage {
   premium: boolean;
 }
 
-export const CHAT_POLL_MS = 15_000;
+export const CHAT_POLL_MS = 30_000;
 const CHAT_HISTORY_HOURS = 4;
 const CHAT_SAFETY_MAX_MESSAGES = 3000;
 const _CHAT_CHANNELS_KEY = 'icc-chat-channels';
@@ -453,7 +446,7 @@ export async function refreshChat(): Promise<void> {
     for (const ch of CHAT_CHANNELS) {
       if (!enabled.has(ch.id)) params.set(ch.param, 'true');
     }
-    const res = await fetch(`https://query.idleclans.com/api/Chat/recent?${params.toString()}`);
+    const res = await idleClansFetch(`https://query.idleclans.com/api/Chat/recent?${params.toString()}`, undefined, 'low');
     if (!res.ok) throw new Error();
     const data: Record<string, any[]> = await res.json();
     const incoming: ChatMessage[] = [];
@@ -556,7 +549,7 @@ export async function refreshNews(): Promise<void> {
   _newsFetchInFlight = true;
   newsError.set(false);
   try {
-    const res = await fetch('https://query.idleclans.com/api/news/latest?count=25');
+    const res = await idleClansFetch('https://query.idleclans.com/api/news/latest?count=25', undefined, 'low');
     if (!res.ok) throw new Error();
     const items: NewsItem[] = await res.json();
     newsItems.set(items);
@@ -569,44 +562,9 @@ export async function refreshNews(): Promise<void> {
   }
 }
 
-export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
-  let r: Response;
-  try {
-    r = await fetch(url, options);
-  } catch (e) {
-    apiError.set(true);
-    apiErrorLog.update(log => [...log, { url, status: null, time: new Date() }]);
-    throw e;
-  }
-
-  if (!r.ok) {
-    if (r.status === 429) {
-      apiError.set(true);
-      const retryAfter = parseInt(r.headers.get('Retry-After') ?? '0', 10);
-      const waitMs = retryAfter > 0 ? retryAfter * 1000 : 5000;
-      const detail = retryAfter > 0 ? undefined : '(no Retry-After header)';
-      apiErrorLog.update(log => [...log, { url, status: 429, time: new Date(), note: `Retrying in ${waitMs / 1000}s…`, detail }]);
-      await new Promise(res => setTimeout(res, waitMs));
-      let retry: Response;
-      try {
-        retry = await fetch(url, options);
-      } catch (e) {
-        apiErrorLog.update(log => [...log, { url, status: null, time: new Date(), note: 'Retry failed' }]);
-        throw e;
-      }
-      if (retry.ok) {
-        apiErrorLog.update(log => [...log, { url, status: retry.status, time: new Date(), note: 'Retry OK' }]);
-      } else {
-        apiErrorLog.update(log => [...log, { url, status: retry.status, time: new Date(), note: 'Retry failed' }]);
-      }
-      return retry;
-    }
-    apiError.set(true);
-    apiErrorLog.update(log => [...log, { url, status: r.status, time: new Date() }]);
-  }
-
-  return r;
-}
+// Every query.idleclans.com call in the app goes through this — it queues behind the
+// shared client-side rate limit instead of hitting fetch() directly. See apiQueue.ts.
+export const apiFetch = idleClansFetch;
 
 export interface ToolNav { tool: string; param: string; id: number; }
 export const toolNavigation = writable<ToolNav | null>(null);
@@ -637,9 +595,9 @@ export interface ClanProfile {
   houseId?: number;
 }
 
-export async function fetchProfile(playerName: string): Promise<PlayerProfile | null> {
+export async function fetchProfile(playerName: string, priority: ApiPriority = 'low'): Promise<PlayerProfile | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/Player/profile/${playerName}`);
+    const res = await idleClansFetch(`${API_BASE}/api/Player/profile/${playerName}`, undefined, priority);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -652,11 +610,11 @@ export const FETCH_PROFILES_MAX_BATCH = 20;
 /** Bulk profile lookup — up to FETCH_PROFILES_MAX_BATCH usernames per call. Players
  *  that don't exist are simply omitted from the response array (no null placeholder),
  *  so callers must match returned profiles back to requested usernames themselves. */
-export async function fetchProfiles(usernames: string[]): Promise<PlayerProfile[]> {
+export async function fetchProfiles(usernames: string[], priority: ApiPriority = 'low'): Promise<PlayerProfile[]> {
   if (usernames.length === 0) return [];
   try {
     const params = usernames.map(u => `usernames=${encodeURIComponent(u)}`).join('&');
-    const res = await fetch(`${API_BASE}/api/Player/profiles?${params}`);
+    const res = await idleClansFetch(`${API_BASE}/api/Player/profiles?${params}`, undefined, priority);
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -664,9 +622,9 @@ export async function fetchProfiles(usernames: string[]): Promise<PlayerProfile[
   }
 }
 
-export async function fetchClanProfile(clanName: string): Promise<ClanProfile | null> {
+export async function fetchClanProfile(clanName: string, priority: ApiPriority = 'low'): Promise<ClanProfile | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/Clan/recruitment/${encodeURIComponent(clanName)}`);
+    const res = await idleClansFetch(`${API_BASE}/api/Clan/recruitment/${encodeURIComponent(clanName)}`, undefined, priority);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -746,16 +704,37 @@ export function renderChangelogMarkdown(markdown: string): string {
   return html;
 }
 
+// Per-client backoff for failed profile fetches — a client stuck without a profile
+// (e.g. mid-login, or the API rate-limiting it) would otherwise get re-fetched every
+// single 10s scan forever. Keyed by playerName so it survives the clients array being
+// rebuilt each scan; doubles up to PROFILE_RETRY_MAX_MS after each failure, reset on success.
+const PROFILE_RETRY_BASE_MS = 10_000;
+const PROFILE_RETRY_MAX_MS = 160_000;
+const _profileRetryState = new Map<string, { nextAttempt: number; delay: number }>();
+
 async function refreshProfiles() {
   const current = get(clients);
+  const stillPresent = new Set(current.map(c => c.playerName).filter((n): n is string => !!n));
+  for (const name of _profileRetryState.keys()) {
+    if (!stillPresent.has(name)) _profileRetryState.delete(name);
+  }
+
   for (let i = 0; i < current.length; i++) {
     const client = current[i];
     // Skip clients we already have a profile for — logging out is already caught for
     // free by the window-title check in scan(), so there's no need to re-hit the API
     // every 10s just to keep guildName/gameMode/activeServerId fresh. A null profile
-    // (never fetched, or a prior fetch failed) still retries here.
+    // (never fetched, or a prior fetch failed) still retries here, subject to backoff below.
     if (!client.playerName || client.profile) continue;
+    const retry = _profileRetryState.get(client.playerName);
+    if (retry && Date.now() < retry.nextAttempt) continue;
     const profile = await fetchProfile(client.playerName);
+    if (profile === null) {
+      const delay = Math.min((retry?.delay ?? PROFILE_RETRY_BASE_MS / 2) * 2, PROFILE_RETRY_MAX_MS);
+      _profileRetryState.set(client.playerName, { nextAttempt: Date.now() + delay, delay });
+    } else {
+      _profileRetryState.delete(client.playerName);
+    }
     clients.update(list => {
       list[i] = { ...list[i], profile, loading: false, error: profile === null };
       return [...list];
@@ -774,11 +753,15 @@ export async function scan() {
       .map(win => {
         const existing = current.find(c => c.win.id === win.id);
         const playerName = extractPlayerName(win.title);
+        // Only carry over the cached profile if it's still the same account in this
+        // window — a relog to a different account (or a logout) must drop the stale
+        // profile rather than keep showing the previous account's clan/mode/online status.
+        const sameIdentity = !!existing && existing.playerName === playerName;
         return {
           win,
           playerName,
-          profile: existing?.profile ?? null,
-          loading: existing ? false : !!playerName,
+          profile: sameIdentity ? existing!.profile : null,
+          loading: sameIdentity ? false : !!playerName,
           error: false,
         };
       })
@@ -869,7 +852,15 @@ function _checkPriceAlerts(cache: Record<number, PriceData>): void {
   }
 }
 
+let _pricesFetchInFlight = false;
+
 export async function refreshPrices() {
+  // Without this guard, a stuck request (e.g. the queue paused for minutes after a 429 —
+  // see apiQueue.ts) left the 60s interval free to keep firing and enqueueing duplicate
+  // bulk-price requests the whole time it was paused, inflating the queue for no reason.
+  // Same pattern as _chatFetchInFlight / _newsFetchInFlight.
+  if (_pricesFetchInFlight) return;
+  _pricesFetchInFlight = true;
   try {
     const res = await apiFetch(`${API_BASE}/api/PlayerMarket/items/prices/latest?includeAveragePrice=false`);
     if (!res.ok) return;
@@ -888,7 +879,7 @@ export async function refreshPrices() {
     if (alertItemIds.length > 0) {
       await Promise.all(alertItemIds.map(async (id) => {
         try {
-          const r = await fetch(`${API_BASE}/api/PlayerMarket/items/prices/latest/comprehensive/${id}`);
+          const r = await idleClansFetch(`${API_BASE}/api/PlayerMarket/items/prices/latest/comprehensive/${id}`, undefined, 'low');
           if (r.ok) {
             const d = await r.json();
             cache[id] = {
@@ -906,6 +897,8 @@ export async function refreshPrices() {
     _checkPriceAlerts(cache);
   } catch (e) {
     console.error('Failed to refresh prices:', e);
+  } finally {
+    _pricesFetchInFlight = false;
   }
 }
 
